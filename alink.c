@@ -50,10 +50,12 @@ PPSEG outlist;
 PPGRP grplist;
 PPPUBLIC publics;
 PPEXTREC externs;
+PPCOMREC comdefs=NULL;
 PPRELOC relocs;
 PPIMPREC impdefs;
 PPEXPREC expdefs;
 PPLIBFILE libfiles;
+PRESOURCE resource=NULL;
 PCHAR modname[256];
 PCHAR filename[256];
 UINT namecount=0,namemin=0,
@@ -61,12 +63,14 @@ UINT namecount=0,namemin=0,
     grpcount=0,grpmin=0,
     pubcount=0,pubmin=0,
     extcount=0,extmin=0,
+    comcount=0,commin=0,
     fixcount=0,fixmin=0,
     impcount=0,impmin=0,impsreq=0,
     expcount=0,expmin=0,
     nummods=0,
     filecount=0,
-    libcount=0;
+    libcount=0,
+    rescount=0;
 UINT libPathCount=0;
 PCHAR *libPath;
 
@@ -76,9 +80,11 @@ void processArgs(int argc,char *argv[])
     int helpRequested=FALSE;
     UINT setbase,setfalign,setoalign;
     UINT setstack,setstackcommit,setheap,setheapcommit;
+    int setsubsysmajor,setsubsysminor,setosmajor,setosminor;
     unsigned char setsubsys;
     int gotbase=FALSE,gotfalign=FALSE,gotoalign=FALSE,gotsubsys=FALSE;
     int gotstack=FALSE,gotstackcommit=FALSE,gotheap=FALSE,gotheapcommit=FALSE;
+    int gotsubsysver=FALSE,gotosver=FALSE;
     char *p;
 
     for(i=1;i<argc;i++)
@@ -250,6 +256,31 @@ void processArgs(int argc,char *argv[])
 			    exit(1);
 			}
 		    }
+    	            else if(!strcmp(argv[i]+1,"osver"))
+		    {
+		        if(i<(argc-1))
+		        {
+			    i++;
+			    if(sscanf(argv[i],"%d.%d%n",&setosmajor,&setosminor,&j)!=2)
+			    {
+			        printf("Invalid version number %s\n",argv[i]);
+			        exit(1);
+			    }
+			    if((j!=strlen(argv[i])) || (setosmajor<0) || (setosminor<0)
+				|| (setosmajor>65535) || (setosminor>65535))
+			    {
+			        printf("Invalid version number %s\n",argv[i]);
+			        exit(1);
+			    }
+			    gotosver=TRUE;
+		        }
+		        else
+		        {
+			    printf("Invalid switch %s\n",argv[i]);
+			    exit(1);
+		        }
+		        break;
+		    }
 		    else
 		    {
 			printf("Invalid switch %s\n",argv[i]);
@@ -258,8 +289,8 @@ void processArgs(int argc,char *argv[])
 		    break;
 		}
 		break;
-            case 'L':
-                if(strlen(argv[i])==2)
+	    case 'L':
+		if(strlen(argv[i])==2)
 		{
 		    if(i<(argc-1))
 		    {
@@ -292,7 +323,7 @@ void processArgs(int argc,char *argv[])
 		}
 		printf("Invalid switch %s\n",argv[i]);
 		exit(1);
-                break;
+		break;
 	    case 'h':
 	    case 'H':
 	    case '?':
@@ -400,11 +431,41 @@ void processArgs(int argc,char *argv[])
 			    setsubsys=PE_SUBSYS_NATIVE;
 			    gotsubsys=TRUE;
 			}
+			else if(!strcmp(argv[i],"posix"))
+			{
+			    setsubsys=PE_SUBSYS_POSIX;
+			    gotsubsys=TRUE;
+			}
 			else
 			{
 			    printf("Invalid subsystem id %s\n",argv[i]);
 			    exit(1);
 			}
+		    }
+		    else
+		    {
+			printf("Invalid switch %s\n",argv[i]);
+			exit(1);
+		    }
+		    break;
+		}
+		else if(!strcmp(argv[i]+1,"subsysver"))
+		{
+		    if(i<(argc-1))
+		    {
+			i++;
+			if(sscanf(argv[i],"%d.%d%n",&setsubsysmajor,&setsubsysminor,&j)!=2)
+			{
+			    printf("Invalid version number %s\n",argv[i]);
+			    exit(1);
+			}
+			if((j!=strlen(argv[i])) || (setsubsysmajor<0) || (setsubsysminor<0)
+				|| (setsubsysmajor>65535) || (setsubsysminor>65535))
+			{
+			    printf("Invalid version number %s\n",argv[i]);
+			    exit(1);
+			}
+			gotsubsysver=TRUE;
 		    }
 		    else
 		    {
@@ -553,9 +614,10 @@ void processArgs(int argc,char *argv[])
     {
 	printf("Usage: ALINK [file [file [...]]] [options]\n");
 	printf("\n");
-	printf("    Each file may be an object file, or a library. If no extension\n");
-	printf("    is specified, .obj is assumed. Modules are only loaded from\n");
-	printf("    library files if they are required to match an external reference\n");
+	printf("    Each file may be an object file, a library, or a Win32 resource\n");
+	printf("    file. If no extension is specified, .obj is assumed. Modules are\n");
+	printf("    only loaded from library files if they are required to match an\n");
+	printf("    external reference.\n");
 	printf("    Options and files may be listed in any order, all mixed together.\n");
 	printf("\n");
 	printf("The following options are permitted:\n");
@@ -586,13 +648,21 @@ void processArgs(int argc,char *argv[])
 	printf("            win       \"\n");
 	printf("            gui       \"\n");
 	printf("            native    Select native mode\n");
+	printf("            posix     Select POSIX mode\n");
+        printf("    -subsysver x.y    Select subsystem version x.y\n");
+        printf("    -osver x.y        Select OS version x.y\n");
 	printf("    -stub xxx         Use xxx as the MSDOS stub\n");
 	printf("    -dll              Build DLL instead of EXE\n");
+	printf("    -stacksize xxx    Set stack size to xxx\n");
+	printf("    -stackcommitsize xxx Set stack commit size to xxx\n");
+	printf("    -heapsize xxx     Set heap size to xxx\n");
+	printf("    -heapcommitsize xxx Set heap commit size to xxx\n");
 	exit(0);
     }
     if((output_type!=OUTPUT_PE) &&
 	(gotoalign || gotfalign || gotbase || gotsubsys || gotstack ||
-	gotstackcommit || gotheap || gotheapcommit || buildDll || stubName))
+	gotstackcommit || gotheap || gotheapcommit || buildDll || stubName || 
+	gotsubsysver || gotosver))
     {
 	printf("Option not supported for non-PE output formats\n");
 	exit(1);
@@ -638,6 +708,16 @@ void processArgs(int argc,char *argv[])
     if(gotsubsys)
     {
 	subSystem=setsubsys;
+    }
+    if(gotsubsysver)
+    {
+	subsysMajor=setsubsysmajor;
+	subsysMinor=setsubsysminor;
+    }
+    if(gotosver)
+    {
+	osMajor=setosmajor;
+	osMinor=setosminor;
     }
 }
 
@@ -747,6 +827,209 @@ void matchExterns()
 	    }
 	}
     } while (old_nummods!=nummods);
+}
+
+void matchComDefs()
+{
+    int i,j,k;
+    int comseg;
+    int comfarseg;
+
+    for(i=0;i<comcount;i++)
+    {
+        if(!comdefs[i]) continue;
+        for(j=0;j<i;j++)
+        {
+            if(strcmp(comdefs[i]->name,comdefs[j]->name)==0)
+            {
+                if(comdefs[i]->isFar!=comdefs[j]->isFar)
+                {
+                    printf("Mismatched near/far type for COMDEF %s\n",comdefs[i]->name);
+                    exit(1);
+                }
+                if(comdefs[i]->length>comdefs[j]->length)
+                    comdefs[j]->length=comdefs[i]->length;
+                free(comdefs[i]->name);
+                free(comdefs[i]);
+                comdefs[i]=0;
+                break;
+            }
+        }
+    }
+
+    for(i=0;i<comcount;i++)
+    {
+        if(!comdefs[i]) continue;
+        for(j=0;j<pubcount;j++)
+        {
+	    if(!publics[j]) continue;
+            if(strcmp(publics[j]->name,comdefs[i]->name)==0)
+            {
+                free(comdefs[i]->name);
+                free(comdefs[i]);
+                comdefs[i]=0;
+                break;
+            }
+        }
+    }
+
+    seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+    if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+    namelist[namecount]=strdup("COMDEFS");
+    seglist[segcount]->nameindex=namecount;
+    seglist[segcount]->classindex=-1;
+    seglist[segcount]->overlayindex=-1;
+    seglist[segcount]->length=0;
+    seglist[segcount]->data=NULL;
+    seglist[segcount]->datmask=NULL;
+    seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+    seglist[segcount]->winFlags=0;
+    comseg=segcount;
+    segcount++;
+
+    for(i=0;i<grpcount;i++)
+    {
+        if(!grplist[i]) continue;
+        if(grplist[i]->nameindex<0) continue;
+        if(!strcmp("DGROUP",namelist[grplist[i]->nameindex]))
+        {
+            if(grplist[i]->numsegs==0) continue; /* don't add to an emtpy group */
+            /* because empty groups are special */
+            /* else add to group */
+            grplist[i]->segindex[grplist[i]->numsegs]=comseg;
+            grplist[i]->numsegs++;
+            break;
+        }
+    }
+    namecount++;
+
+
+    seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+    if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+    namelist[namecount]=strdup("FARCOMDEFS");
+    seglist[segcount]->nameindex=namecount;
+    seglist[segcount]->classindex=-1;
+    seglist[segcount]->overlayindex=-1;
+    seglist[segcount]->length=0;
+    seglist[segcount]->data=NULL;
+    seglist[segcount]->datmask=NULL;
+    seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+    seglist[segcount]->winFlags=0;
+    namecount++;
+    comfarseg=segcount;
+    segcount++;
+
+    for(i=0;i<comcount;i++)
+    {
+        if(!comdefs[i]) continue;
+        publics[pubcount]=(PPUBLIC)malloc(sizeof(PUBLIC));
+	if(!publics[pubcount]) ReportError(ERR_NO_MEM);
+        publics[pubcount]->name=comdefs[i]->name;
+        if(comdefs[i]->isFar)
+        {
+	    if(comdefs[i]->length>65536)
+            {
+	        seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+	        if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+	    	namelist[namecount]=strdup("FARCOMDEFS");
+	    	seglist[segcount]->nameindex=namecount;
+	    	seglist[segcount]->classindex=-1;
+	    	seglist[segcount]->overlayindex=-1;
+	    	seglist[segcount]->length=comdefs[i]->length;
+	    	seglist[segcount]->data=NULL;
+		seglist[segcount]->datmask=
+                    (PUCHAR)malloc((comdefs[i]->length+7)/8);
+                if(!seglist[segcount]->datmask) ReportError(ERR_NO_MEM);
+                for(j=0;j<(comdefs[i]->length+7)/8;j++)
+                    seglist[segcount]->datmask[j]=0;
+	    	seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+	    	seglist[segcount]->winFlags=0;
+	    	namecount++;
+            	publics[pubcount]->segnum=segcount;
+                segcount++;
+            	publics[pubcount]->ofs=0;
+	    }
+            else if((comdefs[i]->length+seglist[comfarseg]->length)>65536)
+            {
+		seglist[comfarseg]->datmask=
+                    (PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
+                if(!seglist[comfarseg]->datmask) ReportError(ERR_NO_MEM);
+                for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
+                    seglist[comfarseg]->datmask[j]=0;
+
+	        seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+	        if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+	    	namelist[namecount]=strdup("FARCOMDEFS");
+	    	seglist[segcount]->nameindex=namecount;
+	    	seglist[segcount]->classindex=-1;
+	    	seglist[segcount]->overlayindex=-1;
+	    	seglist[segcount]->length=comdefs[i]->length;
+	    	seglist[segcount]->data=NULL;
+	    	seglist[segcount]->datmask=NULL;
+	    	seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+	    	seglist[segcount]->winFlags=0;
+                comfarseg=segcount;
+                segcount++;
+	    	namecount++;
+            	publics[pubcount]->segnum=comfarseg;
+            	publics[pubcount]->ofs=0;
+	    }
+            else
+            {
+            	publics[pubcount]->segnum=comfarseg;
+            	publics[pubcount]->ofs=seglist[comfarseg]->length;
+            	seglist[comfarseg]->length+=comdefs[i]->length;
+            }
+        }
+        else
+        {
+            publics[pubcount]->segnum=comseg;
+            publics[pubcount]->ofs=seglist[comseg]->length;
+            seglist[comseg]->length+=comdefs[i]->length;
+        }
+        publics[pubcount]->grpnum=-1;
+        publics[pubcount]->typenum=0;
+        pubcount++;
+    }
+    seglist[comfarseg]->datmask=
+        (PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
+    if(!seglist[comfarseg]->datmask) ReportError(ERR_NO_MEM);
+    for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
+        seglist[comfarseg]->datmask[j]=0;
+
+    seglist[comseg]->datmask=
+        (PUCHAR)malloc((seglist[comseg]->length+7)/8);
+    if(!seglist[comseg]->datmask) ReportError(ERR_NO_MEM);
+    for(j=0;j<(seglist[comseg]->length+7)/8;j++)
+        seglist[comseg]->datmask[j]=0;
+
+    for(i=0;i<expcount;i++)
+    {
+	expdefs[i]->pubnum=-1;
+	for(j=0;j<pubcount;j++)
+	{
+	    if(!strcmp(expdefs[i]->int_name,publics[j]->name)
+		|| ((case_sensitive==0) &&
+		!stricmp(expdefs[i]->int_name,publics[j]->name)))
+	    {
+		expdefs[i]->pubnum=j;
+	    }
+	}
+    }
+    for(i=0;i<extcount;i++)
+    {
+	if(externs[i]->flags!=EXT_NOMATCH) continue;
+	for(j=0;j<pubcount;j++)
+	{
+	    if(!strcmp(externs[i]->name,publics[j]->name)
+		|| ((case_sensitive==0) &&
+		!stricmp(externs[i]->name,publics[j]->name)))
+	    {
+		externs[i]->pubnum=j;
+		externs[i]->flags=EXT_MATCHEDPUBLIC;
+	    }
+	}
+    }
 }
 
 void combineBlocks()
@@ -1023,6 +1306,9 @@ void loadFiles()
 	case LHEADR:
 	    loadmod(afile);
 	    break;
+        case 0:
+            loadres(afile);
+	    break;
 	default:
 	    printf("Unknown file type\n");
 	    fclose(afile);
@@ -1034,7 +1320,7 @@ void loadFiles()
 
 void generateMap()
 {
-    long i;
+    long i,j;
     afile=fopen(mapname,"wt");
     if(!afile)
     {
@@ -1113,6 +1399,15 @@ void generateMap()
 	    fprintf(afile,"  at %08lX, length %08lX\n",seglist[i]->base,seglist[i]->length);
 	}
     }
+    for(i=0;i<grpcount;i++)
+    {
+        if(!grplist[i]) continue;
+        fprintf(afile,"\nGroup %s:\n",namelist[grplist[i]->nameindex]);
+        for(j=0;j<grplist[i]->numsegs;j++)
+        {
+            fprintf(afile,"    %s\n",namelist[seglist[grplist[i]->segindex[j]]->nameindex]);
+        }
+    }
 
     if(pubcount)
     {
@@ -1148,10 +1443,42 @@ void generateMap()
 
 int main(int argc,char *argv[])
 {
-    long i;
+    long i,j;
+    char *libList;
 
-    printf("ALINK v1.3 (C) Copyright 1998 Anthony A.J. Williams.\n");
+    printf("ALINK v1.4 (C) Copyright 1998 Anthony A.J. Williams.\n");
     printf("All Rights Reserved\n\n");
+
+    libList=getenv("LIB");
+    if(libList)
+    {
+	for(i=0,j=0;libList[i];i++)
+	{
+	    if(libList[i]==';')
+	    {
+		if(i-j)
+		{
+		    libPath=(PCHAR*)realloc(libPath,(libPathCount+1)*sizeof(PCHAR));
+                    if(!libPath) ReportError(ERR_NO_MEM);
+                    libList[i]=0;
+                    if(libList[i-1]==PATH_CHAR)
+                    {
+                        libPath[libPathCount]=strdup(libList+j);
+                        if(!libPath[libPathCount]) ReportError(ERR_NO_MEM);
+                    }
+                    else
+                    {
+                        libPath[libPathCount]=(PCHAR)malloc(i-j+2);
+                        strcpy(libPath[libPathCount],libList+j);
+                        libPath[libPathCount][i-j]=PATH_CHAR;
+                        libPath[libPathCount][i-j+1]=0;
+                    }
+                    libPathCount++;
+		}
+                j=i+1;
+            }
+	}
+    }
 
     processArgs(argc,argv);
 
@@ -1284,7 +1611,14 @@ int main(int argc,char *argv[])
 	exit(1);
     }
 
+    if(rescount && (output_type!=OUTPUT_PE))
+    {
+	printf("Cannot link resources into a non-PE application\n");
+	exit(1);
+    }
+
     matchExterns();
+    matchComDefs();
 
     for(i=0;i<expcount;i++)
     {

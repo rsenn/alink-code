@@ -431,6 +431,7 @@ long loadmod(FILE *objfile)
 			 grpmin=grpcount;
 			 impmin=impcount;
 			 expmin=expcount;
+			 commin=comcount;
 			 nummods++;
 			 break;
 		case COMENT:
@@ -460,7 +461,7 @@ long loadmod(FILE *objfile)
 					{
 						if(filename[filecount][i]=='.') break;
 					}
-					if((i>=0) &&  (filename[filecount][i]!='.'))
+					if(((i>=0) &&  (filename[filecount][i]!='.'))||(i<0))
 					{
 						strcat(filename[filecount],".lib");
 					}
@@ -656,6 +657,7 @@ long loadmod(FILE *objfile)
 				}
 			 }
 			 break;
+		case LLNAMES:
 		case LNAMES:
 			 j=0;
 			 while(j<reclength)
@@ -915,7 +917,7 @@ long loadmod(FILE *objfile)
 				}
 				publics[pubcount]->ofs=buf[j]+256*buf[j+1];
 				j+=2;
-				if(rectype==PUBDEF32)
+				if((rectype==PUBDEF32) || (rectype==LPUBDEF32))
 				{
 					publics[pubcount]->ofs+=(buf[j]+256*buf[j+1])<<16;
 					j+=2;
@@ -990,14 +992,15 @@ long loadmod(FILE *objfile)
 		case FIXUPP:
 		case FIXUPP32:
 			 j=0;
-			 if(!li_le)
-			 {
-				ReportError(ERR_BAD_FIXUP);
-			 }
 			 while(j<reclength)
 			 {
 				if(buf[j]&0x80)
 				{
+				/* FIXUP subrecord */
+				 if(!li_le)
+				 {
+					ReportError(ERR_BAD_FIXUP);
+				 }
 					relocs[fixcount]=malloc(sizeof(RELOC));
 					if(!relocs[fixcount])
 					{
@@ -1029,7 +1032,6 @@ long loadmod(FILE *objfile)
 					default:
 							ReportError(ERR_BAD_FIXUP);
 					}
-
 					LoadFIXUP(relocs[fixcount],buf,&j);
 
 					if(li_le==PREV_LE)
@@ -1048,6 +1050,7 @@ long loadmod(FILE *objfile)
 				}
 				else
 				{
+				/* THRED subrecord */
 					i=buf[j]; /* get thred number */
 					j++;
 					if(i&0x40) /* Frame? */
@@ -1069,6 +1072,64 @@ long loadmod(FILE *objfile)
 				}
 			 }
 			 break;
+                case BAKPAT:
+                case BAKPAT32:
+                         j=0;
+                         if(j<reclength) i=GetIndex(buf,&j);
+			 i+=segmin-1;
+                         if(j<reclength)
+                         {
+                             k=buf[j];
+                             j++;
+                         }
+                         while(j<reclength)
+                         {
+				relocs[fixcount]=malloc(sizeof(RELOC));
+				if(!relocs[fixcount])
+				{
+					ReportError(ERR_NO_MEM);
+				}
+                                switch(k)
+                                {
+                                case 0: relocs[fixcount]->rtype=FIX_SELF_LBYTE; break;
+                                case 1: relocs[fixcount]->rtype=FIX_SELF_OFS16; break;
+                                case 2: relocs[fixcount]->rtype=FIX_SELF_OFS32; break;
+                                default:
+                                    printf("Bad BAKPAT record\n");
+                                    exit(1);
+                                }
+				relocs[fixcount]->ofs=buf[j]+256*buf[j+1];
+				j+=2;
+                                if(rectype==BAKPAT32)
+                                {
+					relocs[fixcount]->ofs+=(buf[j]+256*buf[j+1])<<16;
+					j+=2;
+				}
+				relocs[fixcount]->segnum=i;
+                                relocs[fixcount]->target=i;
+                                relocs[fixcount]->frame=i;
+                                relocs[fixcount]->ttype=REL_SEGDISP;
+                                relocs[fixcount]->ftype=REL_SEGFRAME;
+                                relocs[fixcount]->disp=buf[j]+256*buf[j+1];
+				j+=2;
+                                if(rectype==BAKPAT32)
+                                {
+					relocs[fixcount]->disp+=(buf[j]+256*buf[j+1])<<16;
+					j+=2;
+				}
+				relocs[fixcount]->disp+=relocs[fixcount]->ofs;
+                                switch(k)
+                                {
+                                case 0: relocs[fixcount]->disp++; break;
+                                case 1: relocs[fixcount]->disp+=2; break;
+                                case 2: relocs[fixcount]->disp+=4; break;
+                                default:
+                                    printf("Bad BAKPAT record\n");
+                                    exit(1);
+                                }
+				fixcount++;
+                         }
+                         break;
 		case LINNUM:
 		case LINNUM32:
 			 printf("LINNUM record\n");
@@ -1091,6 +1152,114 @@ long loadmod(FILE *objfile)
 				}
 			 }
 			 break;
+		case COMDEF:
+			 for(j=0;j<reclength;)
+			 {
+				externs[extcount]=malloc(sizeof(EXTREC));
+				if(!externs[extcount])
+				{
+					ReportError(ERR_NO_MEM);
+				}
+				externs[extcount]->name=malloc(buf[j]+1);
+				k=buf[j];
+				j++;
+				if(!externs[extcount]->name)
+				{
+					ReportError(ERR_NO_MEM);
+				}
+				for(i=0;i<k;i++,j++)
+				{
+					externs[extcount]->name[i]=buf[j];
+				}
+				externs[extcount]->name[i]=0;
+				if(!case_sensitive)
+				{
+					strupr(externs[extcount]->name);
+				}
+				externs[extcount]->typenum=GetIndex(buf,&j);
+				externs[extcount]->pubnum=-1;
+				externs[extcount]->flags=EXT_NOMATCH;
+				if(buf[j]==0x61)
+				{
+					j++;
+					i=buf[j];
+					j++;
+					if(i==0x81)
+					{
+						i=buf[j]+256*buf[j+1];
+						j+=2;
+					}
+					else if(i==0x84)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2];
+						j+=3;
+					}
+					else if(i==0x88)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2]+(buf[j+3]<<24);
+						j+=4;
+					}
+					k=i;
+					i=buf[j];
+					j++;
+					if(i==0x81)
+					{
+						i=buf[j]+256*buf[j+1];
+						j+=2;
+					}
+					else if(i==0x84)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2];
+						j+=3;
+					}
+					else if(i==0x88)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2]+(buf[j+3]<<24);
+						j+=4;
+					}
+					i*=k;
+					k=1;
+				}
+				else if(buf[j]==0x62)
+				{
+					j++;
+					i=buf[j];
+					j++;
+					if(i==0x81)
+					{
+						i=buf[j]+256*buf[j+1];
+						j+=2;
+					}
+					else if(i==0x84)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2];
+						j+=3;
+					}
+					else if(i==0x88)
+					{
+						i=buf[j]+256*buf[j+1]+65536*buf[j+2]+(buf[j+3]<<24);
+						j+=4;
+					}
+					k=0;
+				}
+				else
+				{
+					printf("Unknown COMDEF data type %02X\n",buf[j]);
+					exit(1);
+				}
+				comdefs=(PPCOMREC)realloc(comdefs,(comcount+1)*sizeof(PCOMREC));
+				if(!comdefs) ReportError(ERR_NO_MEM);
+				comdefs[comcount]=(PCOMREC)malloc(sizeof(COMREC));
+				if(!comdefs[comcount]) ReportError(ERR_NO_MEM);
+				comdefs[comcount]->length=i;
+				comdefs[comcount]->isFar=k;
+				comdefs[comcount]->name=strdup(externs[extcount]->name);
+				if(!comdefs[comcount]->name) ReportError(ERR_NO_MEM);
+				extcount++;
+				comcount++;
+			 }
+
+			break;
 		default:
 				ReportError(ERR_UNKNOWN_RECTYPE);
 		}
@@ -1220,3 +1389,131 @@ void loadlibmod(PLIBFILE p,unsigned short modpage)
 	fclose(libfile);
 }
 
+void loadres(FILE *f)
+{
+    unsigned char buf[32];
+    static unsigned char buf2[32]={0,0,0,0,0x20,0,0,0,0xff,0xff,0,0,0xff,0xff,0,0,
+	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    UINT i,j;
+    UINT hdrsize,datsize;
+    PUCHAR data;
+    PUCHAR hdr;
+
+    if(fread(buf,1,32,f)!=32)
+    {
+	printf("Invalid resource file\n");
+	exit(1);
+    }
+    if(memcmp(buf,buf2,32))
+    {
+	printf("Invalid resource file\n");
+        exit(1);
+    }
+    printf("Loading Win32 Resource File\n");
+    while(!feof(f))
+    {
+	i=ftell(f);
+	if(i&3)
+	{
+		fseek(f,4-(i&3),SEEK_CUR);
+	}
+        i=fread(buf,1,8,f);
+        if(i==0 && feof(f)) return;
+        if(i!=8)
+	{
+	    printf("Invalid resource file, no header\n");
+            exit(1);
+	}
+	datsize=buf[0]+(buf[1]<<8)+(buf[2]<<16)+(buf[3]<<24);
+        hdrsize=buf[4]+(buf[5]<<8)+(buf[6]<<16)+(buf[7]<<24);
+	if(hdrsize<16)
+        {
+	    printf("Invalid resource file, bad header\n");
+            exit(1);
+        }
+        hdr=(PUCHAR)malloc(hdrsize);
+	if(!hdr) ReportError(ERR_NO_MEM);
+	if(fread(hdr,1,hdrsize-8,f)!=(hdrsize-8))
+	{
+	    printf("Invalid resource file, missing header\n");
+	    exit(1);
+	}
+	/* if this is a NULL resource, then skip */
+	if(!datsize && (hdrsize==32) && !memcmp(buf2+8,hdr,24))
+	{
+		free(hdr);
+		continue;
+	}
+	if(datsize)
+	{
+		data=(PUCHAR)malloc(datsize);
+		if(!data) ReportError(ERR_NO_MEM);
+		if(fread(data,1,datsize,f)!=datsize)
+		{
+			printf("Invalid resource file, no data\n");
+			exit(1);
+		}
+	}
+	else data=NULL;
+	resource=(PRESOURCE)realloc(resource,(rescount+1)*sizeof(RESOURCE));
+	if(!resource) ReportError(ERR_NO_MEM);
+	resource[rescount].data=data;
+	resource[rescount].length=datsize;
+	i=0;
+	hdrsize-=8;
+	if((hdr[i]==0xff) && (hdr[i+1]==0xff))
+	{
+		resource[rescount].typename=NULL;
+		resource[rescount].typeid=hdr[i+2]+256*hdr[i+3];
+		i+=4;
+	}
+	else
+	{
+		for(j=i;(j<(hdrsize-1))&&(hdr[j]|hdr[j+1]);j+=2);
+		if(hdr[j]|hdr[j+1])
+		{
+			printf("Invalid resource file, bad name\n");
+			exit(1);
+		}
+		resource[rescount].typename=(PUCHAR)malloc(j-i+2);
+		if(!resource[rescount].typename) ReportError(ERR_NO_MEM);
+		memcpy(resource[rescount].typename,hdr+i,j-i+2);
+		i=j+5;
+                i&=0xfffffffc;
+	}
+	if(i>hdrsize)
+	{
+		printf("Invalid resource file, overflow\n");
+		exit(1);
+	}
+	if((hdr[i]==0xff) && (hdr[i+1]==0xff))
+	{
+		resource[rescount].name=NULL;
+		resource[rescount].id=hdr[i+2]+256*hdr[i+3];
+		i+=4;
+	}
+	else
+	{
+		for(j=i;(j<(hdrsize-1))&&(hdr[j]|hdr[j+1]);j+=2);
+		if(hdr[j]|hdr[j+1])
+		{
+			printf("Invalid resource file,bad name (2)\n");
+			exit(1);
+		}
+		resource[rescount].name=(PUCHAR)malloc(j-i+2);
+		if(!resource[rescount].name) ReportError(ERR_NO_MEM);
+		memcpy(resource[rescount].name,hdr+i,j-i+2);
+		i=j+5;
+                i&=0xfffffffc;
+	}
+	i+=6; /* point to Language ID */
+	if(i>hdrsize)
+	{
+		printf("Invalid resource file, overflow(2)\n");
+		exit(1);
+	}
+	resource[rescount].languageid=hdr[i]+256*hdr[i+1];
+	rescount++;
+	free(hdr);
+    }
+}

@@ -3,6 +3,7 @@
 #include <memory.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 
 #define TRUE  (1==1)
 #define FALSE (1==0)
@@ -57,6 +58,22 @@
 #define LIDATA 0xa2
 #define LIDATA32 0xa3
 #define COMDEF 0xb0
+#define BAKPAT 0xb2
+#define BAKPAT32 0xb3
+#define LEXTDEF 0xb4
+#define LEXTDEF32 0xb5
+#define LPUBDEF 0xb6
+#define LPUBDEF32 0xb7
+#define LCOMDEF 0xb8
+#define CEXTDEF 0xbc
+#define COMDAT 0xc2
+#define COMDAT32 0xc3
+#define LINSYM 0xc4
+#define LINSYM32 0xc5
+#define ALIAS 0xc6
+#define NBKPAT 0xc8
+#define NBKPAT32 0xc9
+#define LLNAMES 0xca
 #define LIBHDR 0xf0
 #define LIBEND 0xf1
 
@@ -230,6 +247,9 @@
 #define PE_IMPORTDIRENTRY_SIZE  0x14
 #define PE_NUM_VAS              0x10
 #define PE_EXPORTHEADER_SIZE    0x28
+#define PE_RESENTRY_SIZE        0x08
+#define PE_RESDIR_SIZE          0x10
+#define PE_RESDATAENTRY_SIZE    0x10
 
 #define PE_ORDINAL_FLAG    0x80000000
 #define PE_INTEL386        0x014c
@@ -244,6 +264,7 @@
 #define PE_SUBSYS_NATIVE  1
 #define PE_SUBSYS_WINDOWS 2
 #define PE_SUBSYS_CONSOLE 3
+#define PE_SUBSYS_POSIX   7
 
 #define WINF_UNDEFINED   0x00000000
 #define WINF_CODE        0x00000020
@@ -346,6 +367,12 @@ typedef struct __extdef {
  long flags;
 } EXTREC, *PEXTREC,**PPEXTREC;
 
+typedef struct __comdef {
+ PCHAR name;
+ UINT length;
+ int isFar;
+} COMREC, *PCOMREC, **PPCOMREC;
+
 typedef struct __reloc {
  UINT ofs;
  long segnum;
@@ -380,6 +407,16 @@ typedef struct __libfile {
  PPLIBENTRY syms;
 } LIBFILE, *PLIBFILE, **PPLIBFILE;
 
+typedef struct __resource {
+ PUCHAR typename;
+ PUCHAR name;
+ PUCHAR data;
+ UINT length;
+ unsigned short typeid;
+ unsigned short id;
+ unsigned short languageid; 
+} RESOURCE, *PRESOURCE;
+
 void processArgs(int argc,char *argv[]);
 void combine_groups(long i,long j);
 void combine_common(long i,long j);
@@ -391,6 +428,7 @@ void GetFixupTarget(PRELOC r,long *tseg,UINT *tofs,int isFlat);
 void loadlibmod(PLIBFILE p,unsigned short modpage);
 void loadlib(FILE *libfile,PCHAR libname);
 long loadmod(FILE *objfile);
+void loadres(FILE *resfile);
 void LoadFIXUP(PRELOC r,PUCHAR buf,long *p);
 void RelocLIDATA(PDATABLOCK p,long *ofs);
 void EmitLiData(PDATABLOCK p,long segnum,long *ofs);
@@ -402,8 +440,12 @@ void ClearNbit(PUCHAR mask,long i);
 void SetNbit(PUCHAR mask,long i);
 char GetNbit(PUCHAR mask,long i);
 int stricmp(const char *s1,const char*s2);
+int wstricmp(const char *s1,const char*s2);
+int wstrlen(const char *s);
+unsigned short wtoupper(unsigned short a);
 char *strupr(char *s);
 int getBitCount(UINT a);
+
 
 
 extern char case_sensitive;
@@ -454,10 +496,12 @@ extern PPSEG outlist;
 extern PPGRP grplist;
 extern PPPUBLIC publics;
 extern PPEXTREC externs;
+extern PPCOMREC comdefs;
 extern PPRELOC relocs;
 extern PPIMPREC impdefs;
 extern PPEXPREC expdefs;
 extern PPLIBFILE libfiles;
+extern PRESOURCE resource;
 extern PCHAR modname[256];
 extern PCHAR filename[256];
 extern UINT namecount,namemin,
@@ -465,12 +509,14 @@ extern UINT namecount,namemin,
 	grpcount,grpmin,
 	pubcount,pubmin,
 	extcount,extmin,
+	comcount,commin,
 	fixcount,fixmin,
 	impcount,impmin,impsreq,
 	expcount,expmin,
 	nummods,
 	filecount,
-	libcount;
+	libcount,
+	rescount;
 
 extern int buildDll;
 extern PUCHAR stubName;

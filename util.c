@@ -126,3 +126,31 @@ void ReportError(long errnum)
                 exit(1);
 }
 
+unsigned short wtoupper(unsigned short a)
+{
+	if(a>=256) return a;
+	return toupper(a);
+}
+
+int wstricmp(const char *s1,const char *s2)
+{
+        int i=0;
+	unsigned short a,b;
+
+	while(TRUE)
+	{
+		a=s1[i]+(s1[i+1]<<8);
+		b=s2[i]+(s2[i+1]<<8);
+		if(wtoupper(a)<wtoupper(b)) return -1;
+		if(wtoupper(a)>wtoupper(b)) return +1;
+		if(!a) return 0;
+		i+=2;
+	}
+}
+
+int wstrlen(const char *s)
+{
+    int i;
+    for(i=0;s[i]||s[i+1];i+=2);
+    return i/2;
+}
