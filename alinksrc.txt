@@ -1,4 +1,4 @@
-ALINK Source Code, V1.4, Copyright 1998 Anthony A.J. Williams. 
+ALINK Source Code, V1.5, Copyright 1998 Anthony A.J. Williams. 
 All Rights Reserved.
 
 This source code is free for all to use, compile and distribute for any

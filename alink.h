@@ -115,7 +115,7 @@
 #define EXT_IMPDEF 0x01
 #define EXT_EXPDEF 0x02
 
-#define SEG_ALIGN 0xe0
+#define SEG_ALIGN 0x3e0
 #define SEG_COMBINE 0x1c
 #define SEG_BIG 0x02
 #define SEG_USE32 0x01
@@ -128,6 +128,9 @@
 #define SEG_DWORD 0xa0
 #define SEG_MEMPAGE 0xc0
 #define SEG_BADALIGN 0xe0
+#define SEG_8BYTE 0x100
+#define SEG_32BYTE 0x200
+#define SEG_64BYTE 0x300
 
 #define SEG_PRIVATE 0x00
 #define SEG_PUBLIC 0x08
@@ -240,6 +243,17 @@
 #define PE_IATRVA         0xd8
 #define PE_IATSIZE        0xdc
 
+#define PE_OBJECT_NAME     0x00
+#define PE_OBJECT_VIRTSIZE 0x08
+#define PE_OBJECT_VIRTADDR 0x0c
+#define PE_OBJECT_RAWSIZE  0x10
+#define PE_OBJECT_RAWPTR   0x14
+#define PE_OBJECT_RELPTR   0x18
+#define PE_OBJECT_LINEPTR  0x1c
+#define PE_OBJECT_NUMREL   0x20
+#define PE_OBJECT_NUMLINE  0x22
+#define PE_OBJECT_FLAGS    0x24
+
 #define PE_BASE_HEADER_SIZE     0x18
 #define PE_OPTIONAL_HEADER_SIZE 0xe0
 #define PE_OBJECTENTRY_SIZE     0x28
@@ -250,6 +264,8 @@
 #define PE_RESENTRY_SIZE        0x08
 #define PE_RESDIR_SIZE          0x10
 #define PE_RESDATAENTRY_SIZE    0x10
+#define PE_SYMBOL_SIZE          0x12
+#define PE_RELOC_SIZE           0x0a
 
 #define PE_ORDINAL_FLAG    0x80000000
 #define PE_INTEL386        0x014c
@@ -270,13 +286,26 @@
 #define WINF_CODE        0x00000020
 #define WINF_INITDATA    0x00000040
 #define WINF_UNINITDATA  0x00000080
-#define WINF_COMMENT     0x00000200
 #define WINF_DISCARDABLE 0x02000000
 #define WINF_NOPAGE      0x08000000
 #define WINF_SHARED      0x10000000
 #define WINF_EXECUTE     0x20000000
 #define WINF_READABLE    0x40000000
 #define WINF_WRITEABLE   0x80000000
+#define WINF_ALIGN_NOPAD 0x00000008
+#define WINF_ALIGN_BYTE  0x00100000
+#define WINF_ALIGN_WORD  0x00200000
+#define WINF_ALIGN_DWORD 0x00300000
+#define WINF_ALIGN_8     0x00400000
+#define WINF_ALIGN_PARA  0x00500000
+#define WINF_ALIGN_32    0x00600000
+#define WINF_ALIGN_64    0x00700000
+#define WINF_ALIGN       (WINF_ALIGN_64 | WINF_ALIGN_NOPAD)
+#define WINF_COMMENT     0x00000200
+#define WINF_REMOVE      0x00000800
+#define WINF_COMDAT      0x00001000
+#define WINF_IMAGE_FLAGS 0xfa0008e0
+
 
 #define OUTPUT_COM 1
 #define OUTPUT_EXE 2
@@ -315,13 +344,14 @@ typedef struct __seg {
  long nameindex;
  long classindex;
  long overlayindex;
+ long orderindex;
  UINT length;
  UINT virtualSize;
  UINT absframe;
  UINT absofs;
  UINT base;
  UINT winFlags;
- unsigned char attr;
+ unsigned short attr;
  PUCHAR data;
  PUCHAR datmask;
 } SEG, *PSEG, **PPSEG;
@@ -342,6 +372,7 @@ typedef struct __exprec {
  UINT ordinal;
  char flags;
  long pubnum;
+ UINT modnum;
 } EXPREC, *PEXPREC, **PPEXPREC;
 
 typedef struct __datablock {
@@ -357,6 +388,7 @@ typedef struct __pubdef {
  long grpnum;
  long typenum;
  UINT ofs;
+ UINT modnum;
 } PUBLIC, *PPUBLIC,**PPPUBLIC;
 
 typedef struct __extdef {
@@ -365,12 +397,14 @@ typedef struct __extdef {
  long pubnum;
  long impnum;
  long flags;
+ UINT modnum;
 } EXTREC, *PEXTREC,**PPEXTREC;
 
 typedef struct __comdef {
  PCHAR name;
  UINT length;
  int isFar;
+ UINT modnum;
 } COMREC, *PCOMREC, **PPCOMREC;
 
 typedef struct __reloc {
@@ -417,6 +451,15 @@ typedef struct __resource {
  unsigned short languageid; 
 } RESOURCE, *PRESOURCE;
 
+typedef struct __coffsym {
+ UINT name;
+ UINT value;
+ short section;
+ unsigned short type;
+ unsigned char class;
+ long extnum;
+} COFFSYM, *PCOFFSYM;
+
 void processArgs(int argc,char *argv[]);
 void combine_groups(long i,long j);
 void combine_common(long i,long j);
@@ -429,6 +472,7 @@ void loadlibmod(PLIBFILE p,unsigned short modpage);
 void loadlib(FILE *libfile,PCHAR libname);
 long loadmod(FILE *objfile);
 void loadres(FILE *resfile);
+void loadcoff(FILE *objfile);
 void LoadFIXUP(PRELOC r,PUCHAR buf,long *p);
 void RelocLIDATA(PDATABLOCK p,long *ofs);
 void EmitLiData(PDATABLOCK p,long segnum,long *ofs);

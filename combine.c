@@ -4,28 +4,77 @@ void combine_segments(long i,long j)
 {
         UINT k,n;
         PUCHAR p,q;
+	long a1,a2;
 
         k=seglist[i]->length;
-        switch(seglist[i]->attr&SEG_ALIGN)
+        switch(seglist[j]->attr&SEG_ALIGN)
         {
         case SEG_WORD:
+		a2=2;
                  k=(k+1)&0xfffffffe;
                  break;
         case SEG_PARA:
+		a2=16;
                  k=(k+0xf)&0xfffffff0;
                  break;
         case SEG_PAGE:
+		a2=0x100;
                  k=(k+0xff)&0xffffff00;
                  break;
         case SEG_DWORD:
+		a2=4;
                  k=(k+3)&0xfffffffc;
                  break;
         case SEG_MEMPAGE:
+		a2=0x1000;
                  k=(k+0xfff)&0xfffff000;
                  break;
+	case SEG_8BYTE:
+		a2=8;
+		k=(k+7)&0xfffffff8;
+		break;
+	case SEG_32BYTE:
+		a2=32;
+		k=(k+31)&0xffffffe0;
+		break;
+	case SEG_64BYTE:
+		a2=64;
+		k=(k+63)&0xffffffc0;
+		break;
         default:
+		a2=1;
                         break;
         }
+	switch(seglist[i]->attr&SEG_ALIGN)
+	{
+	case SEG_WORD:
+		a1=2;
+		break;
+	case SEG_DWORD:
+		a1=4;
+		break;
+	case SEG_8BYTE:
+		a1=8;
+		break;
+	case SEG_PARA:
+		a1=16;
+		break;
+	case SEG_32BYTE:
+		a1=32;
+		break;
+	case SEG_64BYTE:
+		a1=64;
+		break;
+	case SEG_PAGE:
+		a1=0x100;
+		break;
+	case SEG_MEMPAGE:
+		a1=0x1000;
+		break;
+	default:
+		a1=1;
+		break;
+	}
         seglist[j]->base=k;
         p=malloc(k+seglist[j]->length);
         if(!p)
@@ -66,6 +115,8 @@ void combine_segments(long i,long j)
                 }
         }
         seglist[i]->length=k;
+	if(a2>a1) seglist[i]->attr=seglist[j]->attr;
+    seglist[i]->winFlags |= seglist[j]->winFlags;
         free(seglist[i]->data);
         free(seglist[j]->data);
         free(seglist[i]->datmask);
@@ -352,4 +403,107 @@ void combine_groups(long i,long j)
                 }
         }
 }
+
+void combineBlocks()
+{
+    long i,j,k;
+    char *name;
+    long attr;
+    UINT count;
+    UINT *slist;
+    UINT curseg;
+
+    for(i=0;i<segcount;i++)
+    {
+	if(seglist[i]&&((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS))
+	{
+	    name=namelist[seglist[i]->nameindex];
+	    attr=seglist[i]->attr&(SEG_COMBINE|SEG_USE32);
+	    switch(attr&SEG_COMBINE)
+	    {
+	    case SEG_STACK:
+		 for(j=i+1;j<segcount;j++)
+		 {
+			if(!seglist[j]) continue;
+			if((seglist[j]->attr&SEG_ALIGN)==SEG_ABS) continue;
+			if((seglist[j]->attr&SEG_COMBINE)!=SEG_STACK) continue;
+			combine_segments(i,j);
+		}
+		break;
+	    case SEG_PUBLIC:
+	    case SEG_PUBLIC2:
+	    case SEG_PUBLIC3:
+		slist=(UINT*)malloc(sizeof(UINT));
+		if(!slist) ReportError(ERR_NO_MEM);
+		slist[0]=i;
+		/* get list of segments to combine */
+		 for(j=i+1,count=1;j<segcount;j++)
+		 {
+			if(!seglist[j]) continue;
+			if((seglist[j]->attr&SEG_ALIGN)==SEG_ABS) continue;
+			if(attr!=(seglist[j]->attr&(SEG_COMBINE|SEG_USE32))) continue;
+			if(strcmp(name,namelist[seglist[j]->nameindex])!=0) continue;
+			slist=(UINT*)realloc(slist,(count+1)*sizeof(UINT));
+			slist[count]=j;
+			count++;
+		}
+		/* sort them by sortorder */
+		for(j=1;j<count;j++)
+		{
+			curseg=slist[j];
+			for(k=j-1;k>=0;k--)
+			{
+				if(seglist[slist[k]]->orderindex<0) break;
+				if(seglist[curseg]->orderindex>=0)
+				{
+					if(strcmp(namelist[seglist[curseg]->orderindex],
+					namelist[seglist[slist[k]]->orderindex])>=0) break;
+				}
+				slist[k+1]=slist[k];
+			}
+			k++;
+			slist[k]=curseg;
+		}
+		/* then combine in that order */
+		for(j=1;j<count;j++)
+		{
+			combine_segments(i,slist[j]);
+		}
+		free(slist);
+		 break;
+	    case SEG_COMMON:
+		 for(j=i+1;j<segcount;j++)
+		 {
+		    if((seglist[j]&&((seglist[j]->attr&SEG_ALIGN)!=SEG_ABS)) &&
+		      ((seglist[i]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32))==(seglist[j]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32)))
+		      &&
+		      (strcmp(name,namelist[seglist[j]->nameindex])==0)
+		      )
+		    {
+			combine_common(i,j);
+		    }
+		 }
+		 break;
+	    default:
+		    break;
+	    }
+	}
+    }
+
+    for(i=0;i<grpcount;i++)
+    {
+	if(grplist[i])
+	{
+	    for(j=i+1;j<grpcount;j++)
+	    {
+		if(!grplist[j]) continue;
+		if(strcmp(namelist[grplist[i]->nameindex],namelist[grplist[j]->nameindex])==0)
+		{
+		    combine_groups(i,j);
+		}
+	    }
+	}
+    }
+}
+
 

@@ -73,6 +73,7 @@ UINT namecount=0,namemin=0,
     rescount=0;
 UINT libPathCount=0;
 PCHAR *libPath;
+char *entryPoint=NULL;
 
 void processArgs(int argc,char *argv[])
 {
@@ -256,30 +257,30 @@ void processArgs(int argc,char *argv[])
 			    exit(1);
 			}
 		    }
-    	            else if(!strcmp(argv[i]+1,"osver"))
+		    else if(!strcmp(argv[i]+1,"osver"))
 		    {
-		        if(i<(argc-1))
-		        {
+			if(i<(argc-1))
+			{
 			    i++;
 			    if(sscanf(argv[i],"%d.%d%n",&setosmajor,&setosminor,&j)!=2)
 			    {
-			        printf("Invalid version number %s\n",argv[i]);
-			        exit(1);
+				printf("Invalid version number %s\n",argv[i]);
+				exit(1);
 			    }
 			    if((j!=strlen(argv[i])) || (setosmajor<0) || (setosminor<0)
 				|| (setosmajor>65535) || (setosminor>65535))
 			    {
-			        printf("Invalid version number %s\n",argv[i]);
-			        exit(1);
+				printf("Invalid version number %s\n",argv[i]);
+				exit(1);
 			    }
 			    gotosver=TRUE;
-		        }
-		        else
-		        {
+			}
+			else
+			{
 			    printf("Invalid switch %s\n",argv[i]);
 			    exit(1);
-		        }
-		        break;
+			}
+			break;
 		    }
 		    else
 		    {
@@ -577,6 +578,27 @@ void processArgs(int argc,char *argv[])
 		    exit(1);
 		}
 		break;
+	    case 'e':
+		if(!strcmp(argv[i]+1,"entry"))
+		{
+		    if(i<(argc-1))
+		    {
+			i++;
+			entryPoint=argv[i];
+		    }
+		    else
+		    {
+			printf("Invalid switch %s\n",argv[i]);
+			exit(1);
+		    }
+		}
+		else
+		{
+		    printf("Invalid switch %s\n",argv[i]);
+		    exit(1);
+		}
+		break;
+		
 	    default:
 		printf("Invalid switch %s\n",argv[i]);
 		exit(1);
@@ -649,8 +671,8 @@ void processArgs(int argc,char *argv[])
 	printf("            gui       \"\n");
 	printf("            native    Select native mode\n");
 	printf("            posix     Select POSIX mode\n");
-        printf("    -subsysver x.y    Select subsystem version x.y\n");
-        printf("    -osver x.y        Select OS version x.y\n");
+	printf("    -subsysver x.y    Select subsystem version x.y\n");
+	printf("    -osver x.y        Select OS version x.y\n");
 	printf("    -stub xxx         Use xxx as the MSDOS stub\n");
 	printf("    -dll              Build DLL instead of EXE\n");
 	printf("    -stacksize xxx    Set stack size to xxx\n");
@@ -737,7 +759,10 @@ void matchExterns()
 		    || ((case_sensitive==0) &&
 		    !stricmp(expdefs[i]->int_name,publics[j]->name)))
 		{
+                    if(publics[j]->modnum && publics[j]->modnum!=expdefs[i]->modnum)
+                        continue;
 		    expdefs[i]->pubnum=j;
+                    break;
 		}
 	    }
 	}
@@ -750,8 +775,13 @@ void matchExterns()
 		    || ((case_sensitive==0) &&
 		    !stricmp(externs[i]->name,publics[j]->name)))
 		{
+                    /* local publics can only match externs in same module */
+		    /* and global publics can only match global externs */
+                    if(externs[i]->modnum!=publics[j]->modnum)
+                        continue;
 		    externs[i]->pubnum=j;
 		    externs[i]->flags=EXT_MATCHEDPUBLIC;
+                    break;
 		}
 	    }
 	    if(externs[i]->flags==EXT_NOMATCH)
@@ -835,42 +865,46 @@ void matchComDefs()
     int comseg;
     int comfarseg;
 
+    if(!comcount) return;
+
     for(i=0;i<comcount;i++)
     {
-        if(!comdefs[i]) continue;
-        for(j=0;j<i;j++)
-        {
-            if(strcmp(comdefs[i]->name,comdefs[j]->name)==0)
-            {
-                if(comdefs[i]->isFar!=comdefs[j]->isFar)
-                {
-                    printf("Mismatched near/far type for COMDEF %s\n",comdefs[i]->name);
-                    exit(1);
-                }
-                if(comdefs[i]->length>comdefs[j]->length)
-                    comdefs[j]->length=comdefs[i]->length;
-                free(comdefs[i]->name);
-                free(comdefs[i]);
-                comdefs[i]=0;
-                break;
-            }
-        }
+	if(!comdefs[i]) continue;
+	for(j=0;j<i;j++)
+	{
+	    if(comdefs[i]->modnum!=comdefs[j]->modnum) continue;
+	    if(strcmp(comdefs[i]->name,comdefs[j]->name)==0)
+	    {
+		if(comdefs[i]->isFar!=comdefs[j]->isFar)
+		{
+		    printf("Mismatched near/far type for COMDEF %s\n",comdefs[i]->name);
+		    exit(1);
+		}
+		if(comdefs[i]->length>comdefs[j]->length)
+		    comdefs[j]->length=comdefs[i]->length;
+		free(comdefs[i]->name);
+		free(comdefs[i]);
+		comdefs[i]=0;
+		break;
+	    }
+	}
     }
 
     for(i=0;i<comcount;i++)
     {
-        if(!comdefs[i]) continue;
-        for(j=0;j<pubcount;j++)
-        {
+	if(!comdefs[i]) continue;
+	for(j=0;j<pubcount;j++)
+	{
 	    if(!publics[j]) continue;
-            if(strcmp(publics[j]->name,comdefs[i]->name)==0)
-            {
-                free(comdefs[i]->name);
-                free(comdefs[i]);
-                comdefs[i]=0;
-                break;
-            }
-        }
+	    if(publics[j]->modnum!=comdefs[i]->modnum) continue;
+	    if(strcmp(publics[j]->name,comdefs[i]->name)==0)
+	    {
+		free(comdefs[i]->name);
+		free(comdefs[i]);
+		comdefs[i]=0;
+		break;
+	    }
+	}
     }
 
     seglist[segcount]=(PSEG)malloc(sizeof(SEG));
@@ -889,17 +923,17 @@ void matchComDefs()
 
     for(i=0;i<grpcount;i++)
     {
-        if(!grplist[i]) continue;
-        if(grplist[i]->nameindex<0) continue;
-        if(!strcmp("DGROUP",namelist[grplist[i]->nameindex]))
-        {
-            if(grplist[i]->numsegs==0) continue; /* don't add to an emtpy group */
-            /* because empty groups are special */
-            /* else add to group */
-            grplist[i]->segindex[grplist[i]->numsegs]=comseg;
-            grplist[i]->numsegs++;
-            break;
-        }
+	if(!grplist[i]) continue;
+	if(grplist[i]->nameindex<0) continue;
+	if(!strcmp("DGROUP",namelist[grplist[i]->nameindex]))
+	{
+	    if(grplist[i]->numsegs==0) continue; /* don't add to an emtpy group */
+	    /* because empty groups are special */
+	    /* else add to group */
+	    grplist[i]->segindex[grplist[i]->numsegs]=comseg;
+	    grplist[i]->numsegs++;
+	    break;
+	}
     }
     namecount++;
 
@@ -921,87 +955,88 @@ void matchComDefs()
 
     for(i=0;i<comcount;i++)
     {
-        if(!comdefs[i]) continue;
-        publics[pubcount]=(PPUBLIC)malloc(sizeof(PUBLIC));
+	if(!comdefs[i]) continue;
+	publics[pubcount]=(PPUBLIC)malloc(sizeof(PUBLIC));
 	if(!publics[pubcount]) ReportError(ERR_NO_MEM);
-        publics[pubcount]->name=comdefs[i]->name;
-        if(comdefs[i]->isFar)
-        {
+	publics[pubcount]->name=comdefs[i]->name;
+	if(comdefs[i]->isFar)
+	{
 	    if(comdefs[i]->length>65536)
-            {
-	        seglist[segcount]=(PSEG)malloc(sizeof(SEG));
-	        if(!seglist[segcount]) ReportError(ERR_NO_MEM);
-	    	namelist[namecount]=strdup("FARCOMDEFS");
-	    	seglist[segcount]->nameindex=namecount;
-	    	seglist[segcount]->classindex=-1;
-	    	seglist[segcount]->overlayindex=-1;
-	    	seglist[segcount]->length=comdefs[i]->length;
-	    	seglist[segcount]->data=NULL;
+	    {
+		seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+		if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+		namelist[namecount]=strdup("FARCOMDEFS");
+		seglist[segcount]->nameindex=namecount;
+		seglist[segcount]->classindex=-1;
+		seglist[segcount]->overlayindex=-1;
+		seglist[segcount]->length=comdefs[i]->length;
+		seglist[segcount]->data=NULL;
 		seglist[segcount]->datmask=
-                    (PUCHAR)malloc((comdefs[i]->length+7)/8);
-                if(!seglist[segcount]->datmask) ReportError(ERR_NO_MEM);
-                for(j=0;j<(comdefs[i]->length+7)/8;j++)
-                    seglist[segcount]->datmask[j]=0;
-	    	seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-	    	seglist[segcount]->winFlags=0;
-	    	namecount++;
-            	publics[pubcount]->segnum=segcount;
-                segcount++;
-            	publics[pubcount]->ofs=0;
+		    (PUCHAR)malloc((comdefs[i]->length+7)/8);
+		if(!seglist[segcount]->datmask) ReportError(ERR_NO_MEM);
+		for(j=0;j<(comdefs[i]->length+7)/8;j++)
+		    seglist[segcount]->datmask[j]=0;
+		seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+		seglist[segcount]->winFlags=0;
+		namecount++;
+		publics[pubcount]->segnum=segcount;
+		segcount++;
+		publics[pubcount]->ofs=0;
 	    }
-            else if((comdefs[i]->length+seglist[comfarseg]->length)>65536)
-            {
+	    else if((comdefs[i]->length+seglist[comfarseg]->length)>65536)
+	    {
 		seglist[comfarseg]->datmask=
-                    (PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
-                if(!seglist[comfarseg]->datmask) ReportError(ERR_NO_MEM);
-                for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
-                    seglist[comfarseg]->datmask[j]=0;
+		    (PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
+		if(!seglist[comfarseg]->datmask) ReportError(ERR_NO_MEM);
+		for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
+		    seglist[comfarseg]->datmask[j]=0;
 
-	        seglist[segcount]=(PSEG)malloc(sizeof(SEG));
-	        if(!seglist[segcount]) ReportError(ERR_NO_MEM);
-	    	namelist[namecount]=strdup("FARCOMDEFS");
-	    	seglist[segcount]->nameindex=namecount;
-	    	seglist[segcount]->classindex=-1;
-	    	seglist[segcount]->overlayindex=-1;
-	    	seglist[segcount]->length=comdefs[i]->length;
-	    	seglist[segcount]->data=NULL;
-	    	seglist[segcount]->datmask=NULL;
-	    	seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-	    	seglist[segcount]->winFlags=0;
-                comfarseg=segcount;
-                segcount++;
-	    	namecount++;
-            	publics[pubcount]->segnum=comfarseg;
-            	publics[pubcount]->ofs=0;
+		seglist[segcount]=(PSEG)malloc(sizeof(SEG));
+		if(!seglist[segcount]) ReportError(ERR_NO_MEM);
+		namelist[namecount]=strdup("FARCOMDEFS");
+		seglist[segcount]->nameindex=namecount;
+		seglist[segcount]->classindex=-1;
+		seglist[segcount]->overlayindex=-1;
+		seglist[segcount]->length=comdefs[i]->length;
+		seglist[segcount]->data=NULL;
+		seglist[segcount]->datmask=NULL;
+		seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
+		seglist[segcount]->winFlags=0;
+		comfarseg=segcount;
+		segcount++;
+		namecount++;
+		publics[pubcount]->segnum=comfarseg;
+		publics[pubcount]->ofs=0;
 	    }
-            else
-            {
-            	publics[pubcount]->segnum=comfarseg;
-            	publics[pubcount]->ofs=seglist[comfarseg]->length;
-            	seglist[comfarseg]->length+=comdefs[i]->length;
-            }
-        }
-        else
-        {
-            publics[pubcount]->segnum=comseg;
-            publics[pubcount]->ofs=seglist[comseg]->length;
-            seglist[comseg]->length+=comdefs[i]->length;
-        }
-        publics[pubcount]->grpnum=-1;
-        publics[pubcount]->typenum=0;
-        pubcount++;
+	    else
+	    {
+		publics[pubcount]->segnum=comfarseg;
+		publics[pubcount]->ofs=seglist[comfarseg]->length;
+		seglist[comfarseg]->length+=comdefs[i]->length;
+	    }
+	}
+	else
+	{
+	    publics[pubcount]->segnum=comseg;
+	    publics[pubcount]->ofs=seglist[comseg]->length;
+	    seglist[comseg]->length+=comdefs[i]->length;
+	}
+        publics[pubcount]->modnum=comdefs[i]->modnum;
+	publics[pubcount]->grpnum=-1;
+	publics[pubcount]->typenum=0;
+	pubcount++;
     }
     seglist[comfarseg]->datmask=
-        (PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
+	(PUCHAR)malloc((seglist[comfarseg]->length+7)/8);
     if(!seglist[comfarseg]->datmask) ReportError(ERR_NO_MEM);
     for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
-        seglist[comfarseg]->datmask[j]=0;
+	seglist[comfarseg]->datmask[j]=0;
 
     seglist[comseg]->datmask=
-        (PUCHAR)malloc((seglist[comseg]->length+7)/8);
+	(PUCHAR)malloc((seglist[comseg]->length+7)/8);
     if(!seglist[comseg]->datmask) ReportError(ERR_NO_MEM);
     for(j=0;j<(seglist[comseg]->length+7)/8;j++)
-        seglist[comseg]->datmask[j]=0;
+	seglist[comseg]->datmask[j]=0;
 
     for(i=0;i<expcount;i++)
     {
@@ -1025,70 +1060,11 @@ void matchComDefs()
 		|| ((case_sensitive==0) &&
 		!stricmp(externs[i]->name,publics[j]->name)))
 	    {
+                /* local publics can only match externs in same module */
+                if(externs[i]->modnum!=publics[i]->modnum)
+                    continue;
 		externs[i]->pubnum=j;
 		externs[i]->flags=EXT_MATCHEDPUBLIC;
-	    }
-	}
-    }
-}
-
-void combineBlocks()
-{
-    long i,j;
-    for(i=0;i<segcount;i++)
-    {
-	if(seglist[i]&&((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS))
-	{
-	    switch(seglist[i]->attr&SEG_COMBINE)
-	    {
-	    case SEG_PUBLIC:
-	    case SEG_PUBLIC2:
-	    case SEG_STACK:
-	    case SEG_PUBLIC3:
-		 for(j=i+1;j<segcount;j++)
-		 {
-		    if((seglist[j]&&((seglist[j]->attr&SEG_ALIGN)!=SEG_ABS)) &&
-		      (
-			((seglist[i]->attr&SEG_COMBINE)==SEG_STACK) ||
-			((seglist[i]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32))==(seglist[j]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32)))
-		      ) &&
-		      (strcmp(namelist[seglist[i]->nameindex],namelist[seglist[j]->nameindex])==0)
-		      )
-		    {
-			combine_segments(i,j);
-		    }
-		 }
-		 break;
-	    case SEG_COMMON:
-		 for(j=i+1;j<segcount;j++)
-		 {
-		    if((seglist[j]&&((seglist[j]->attr&SEG_ALIGN)!=SEG_ABS)) &&
-		      ((seglist[i]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32))==(seglist[j]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32)))
-		      &&
-		      (strcmp(namelist[seglist[i]->nameindex],namelist[seglist[j]->nameindex])==0)
-		      )
-		    {
-			combine_common(i,j);
-		    }
-		 }
-		 break;
-	    default:
-		    break;
-	    }
-	}
-    }
-
-    for(i=0;i<grpcount;i++)
-    {
-	if(grplist[i])
-	{
-	    for(j=i+1;j<grpcount;j++)
-	    {
-		if(!grplist[j]) continue;
-		if(strcmp(namelist[grplist[i]->nameindex],namelist[grplist[j]->nameindex])==0)
-		{
-		    combine_groups(i,j);
-		}
 	    }
 	}
     }
@@ -1131,23 +1107,41 @@ void sortSegments()
 		    printf("Error - group %s contains non-existent segment\n",namelist[grplist[i]->nameindex]);
 		    exit(1);
 		}
+		/* don't add removed sections */
+		if(seglist[k]->winFlags & WINF_REMOVE)
+		{
+			continue;
+		}
 		/* add non-absolute segment */
 		if((seglist[k]->attr&SEG_ALIGN)!=SEG_ABS)
 		{
 		    switch(seglist[k]->attr&SEG_ALIGN)
 		    {
 		    case SEG_WORD:
-		    case SEG_BYTE:
+			align=2;
+			break;
 		    case SEG_DWORD:
+			align=4;
+			break;
+		    case SEG_8BYTE:
+			align=0x8;
+			break;
 		    case SEG_PARA:
 			    align=0x10;
 			    break;
+                    case SEG_32BYTE:
+			align=0x20;
+			break;
+		    case SEG_64BYTE:
+			align=0x40;
+			break;
 		    case SEG_PAGE:
 			    align=0x100;
 			    break;
 		    case SEG_MEMPAGE:
 			    align=0x1000;
 			    break;
+		    case SEG_BYTE:
 		    default:
 			    align=1;
 			    break;
@@ -1192,6 +1186,11 @@ void sortSegments()
     {
 	if(seglist[i])
 	{
+		/* don't add removed sections */
+		if(seglist[i]->winFlags & WINF_REMOVE)
+		{
+			continue;
+		}
 	    /* add non-absolute segment, not already dealt with */
 	    if(((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS) &&
 		    !seglist[i]->absframe)
@@ -1306,8 +1305,13 @@ void loadFiles()
 	case LHEADR:
 	    loadmod(afile);
 	    break;
-        case 0:
-            loadres(afile);
+	case 0:
+	    loadres(afile);
+	    break;
+	case 0x4c:
+	case 0x4d:
+	case 0x4e:
+	    loadcoff(afile);
 	    break;
 	default:
 	    printf("Unknown file type\n");
@@ -1401,19 +1405,20 @@ void generateMap()
     }
     for(i=0;i<grpcount;i++)
     {
-        if(!grplist[i]) continue;
-        fprintf(afile,"\nGroup %s:\n",namelist[grplist[i]->nameindex]);
-        for(j=0;j<grplist[i]->numsegs;j++)
-        {
-            fprintf(afile,"    %s\n",namelist[seglist[grplist[i]->segindex[j]]->nameindex]);
-        }
+	if(!grplist[i]) continue;
+	fprintf(afile,"\nGroup %s:\n",namelist[grplist[i]->nameindex]);
+	for(j=0;j<grplist[i]->numsegs;j++)
+	{
+	    fprintf(afile,"    %s\n",namelist[seglist[grplist[i]->segindex[j]]->nameindex]);
+	}
     }
 
     if(pubcount)
     {
-	fprintf(afile,"\n %li publics:\n",pubcount);
+	fprintf(afile,"\npublics:\n");
 	for(i=0;i<pubcount;i++)
 	{
+		if(publics[i]->modnum) continue;
 	    fprintf(afile,"%s at %s:%08lX\n",
 		publics[i]->name,
 		(publics[i]->segnum>=0) ? namelist[seglist[publics[i]->segnum]->nameindex] : "Absolute",
@@ -1446,7 +1451,7 @@ int main(int argc,char *argv[])
     long i,j;
     char *libList;
 
-    printf("ALINK v1.4 (C) Copyright 1998 Anthony A.J. Williams.\n");
+    printf("ALINK v1.5 (C) Copyright 1998 Anthony A.J. Williams.\n");
     printf("All Rights Reserved\n\n");
 
     libList=getenv("LIB");
@@ -1459,24 +1464,24 @@ int main(int argc,char *argv[])
 		if(i-j)
 		{
 		    libPath=(PCHAR*)realloc(libPath,(libPathCount+1)*sizeof(PCHAR));
-                    if(!libPath) ReportError(ERR_NO_MEM);
-                    libList[i]=0;
-                    if(libList[i-1]==PATH_CHAR)
-                    {
-                        libPath[libPathCount]=strdup(libList+j);
-                        if(!libPath[libPathCount]) ReportError(ERR_NO_MEM);
-                    }
-                    else
-                    {
-                        libPath[libPathCount]=(PCHAR)malloc(i-j+2);
-                        strcpy(libPath[libPathCount],libList+j);
-                        libPath[libPathCount][i-j]=PATH_CHAR;
-                        libPath[libPathCount][i-j+1]=0;
-                    }
-                    libPathCount++;
+		    if(!libPath) ReportError(ERR_NO_MEM);
+		    libList[i]=0;
+		    if(libList[i-1]==PATH_CHAR)
+		    {
+			libPath[libPathCount]=strdup(libList+j);
+			if(!libPath[libPathCount]) ReportError(ERR_NO_MEM);
+		    }
+		    else
+		    {
+			libPath[libPathCount]=(PCHAR)malloc(i-j+2);
+			strcpy(libPath[libPathCount],libList+j);
+			libPath[libPathCount][i-j]=PATH_CHAR;
+			libPath[libPathCount][i-j+1]=0;
+		    }
+		    libPathCount++;
 		}
-                j=i+1;
-            }
+		j=i+1;
+	    }
 	}
     }
 
@@ -1617,6 +1622,31 @@ int main(int argc,char *argv[])
 	exit(1);
     }
 
+    if(entryPoint)
+    {
+	if(gotstart)
+	{
+		printf("Warning, overriding entry point from Command Line\n");
+	}
+	/* define an external reference for entry point */
+	externs[extcount]=(PEXTREC)malloc(sizeof(EXTREC));
+	if(!externs[extcount]) ReportError(ERR_NO_MEM);
+	externs[extcount]->name=entryPoint;
+	externs[extcount]->typenum=-1;
+	externs[extcount]->pubnum=-1;
+	externs[extcount]->flags=EXT_NOMATCH;
+	externs[extcount]->modnum=0;
+
+	/* point start address to this external */
+	startaddr.ftype=REL_EXTDISP;
+	startaddr.frame=extcount;
+	startaddr.ttype=REL_EXTONLY;
+	startaddr.target=extcount;
+
+	extcount++;
+	gotstart=TRUE;
+    }
+
     matchExterns();
     matchComDefs();
 
@@ -1643,7 +1673,6 @@ int main(int argc,char *argv[])
     }
 
     combineBlocks();
-
     sortSegments();
 
     switch(output_type)

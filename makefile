@@ -6,7 +6,7 @@
 
 all: alink.exe
 
-alink.o combine.o util.o output.o objload.o: alink.h
+alink.o combine.o util.o output.o objload.o coff.o: alink.h
 
-alink.exe: alink.o combine.o util.o output.o objload.o
+alink.exe: alink.o combine.o util.o output.o objload.o coff.o
         gcc -Zrsx32 -o $@ $^

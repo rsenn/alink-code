@@ -130,6 +130,7 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
     {
         errcount++;
     }
+
     if(!errcount)
     {
 /*
@@ -946,6 +947,9 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
     k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
 
+    k+=fileAlign-1;
+    k&=(0xffffffff-(fileAlign-1)); /* aligned */
+
     /* k is now physical location of this object */
 
     objectTable[20]=(k)&0xff; /* store physical file offset */
@@ -1119,8 +1123,6 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
     objectTable[11]=(k>>24)&0xff;
 
     k=impsect->length;
-    k+=fileAlign-1;
-    k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
     objectTable[16]=(k)&0xff; /* store initialised data size */
     objectTable[17]=(k>>8)&0xff;
     objectTable[18]=(k>>16)&0xff;
@@ -1439,8 +1441,6 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
     objectTable[11]=(k>>24)&0xff;
 
     k=relocSect->length;
-    k+=fileAlign-1;
-    k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
     objectTable[16]=(k)&0xff; /* store initialised data size */
     objectTable[17]=(k>>8)&0xff;
     objectTable[18]=(k>>16)&0xff;
@@ -1455,6 +1455,9 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
     k+=objectTable[-PE_OBJECTENTRY_SIZE+17]<<8;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
+
+    k+=fileAlign-1;
+    k&=(0xffffffff-(fileAlign-1)); /* aligned */
 
     /* k is now physical location of this object */
 
@@ -1571,8 +1574,6 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
     objectTable[11]=(k>>24)&0xff;
 
     k=expSect->length;
-    k+=fileAlign-1;
-    k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
     objectTable[16]=(k)&0xff; /* store initialised data size */
     objectTable[17]=(k>>8)&0xff;
     objectTable[18]=(k>>16)&0xff;
@@ -1587,6 +1588,9 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
     k+=objectTable[-PE_OBJECTENTRY_SIZE+17]<<8;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
+
+    k+=fileAlign-1;
+    k&=(0xffffffff-(fileAlign-1)); /* aligned */
 
     /* k is now physical location of this object */
 
@@ -1829,6 +1833,9 @@ void BuildPEResources(long sectNum,PUCHAR objectTable)
     k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
     k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
 
+    k+=fileAlign-1;
+    k&=(0xffffffff-(fileAlign-1)); /* aligned */
+
     /* k is now physical location of this object */
 
     objectTable[20]=(k)&0xff; /* store physical file offset */
@@ -2048,7 +2055,7 @@ void BuildPEResources(long sectNum,PUCHAR objectTable)
     curTypeId=-1;
     for(i=0;i<rescount;i++)
     {
-        if(!(resource[i].typename && curTypeName && 
+        if(!(resource[i].typename && curTypeName &&
             !wstricmp(resource[i].typename,curTypeName))
             && !(!resource[i].typename && !curTypeName && curTypeId==resource[i].typeid))
         {
@@ -2124,7 +2131,7 @@ void BuildPEResources(long sectNum,PUCHAR objectTable)
             tablePos+=PE_RESDIR_SIZE+(numids+numnames)*PE_RESENTRY_SIZE;
             curTypePos+=PE_RESENTRY_SIZE;
         }
-        if(!(resource[i].name && curName && 
+        if(!(resource[i].name && curName &&
             !wstricmp(resource[i].name,curName))
             && !(!resource[i].name && !curName && curId==resource[i].id))
         {
@@ -2240,8 +2247,6 @@ void BuildPEResources(long sectNum,PUCHAR objectTable)
     objectTable[11]=(k>>24)&0xff;
 
     k=ressect->length;
-    k+=fileAlign-1;
-    k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
     objectTable[16]=(k)&0xff; /* store initialised data size */
     objectTable[17]=(k>>8)&0xff;
     objectTable[18]=(k>>16)&0xff;
@@ -2541,9 +2546,6 @@ void OutputWin32file(PCHAR outname)
             for(k=outlist[i]->length-1;(k>=0)&&!GetNbit(outlist[i]->datmask,k);k--);
             k++; /* k=initialised length */
         }
-        k+=fileAlign-1;
-        k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
-
         headbuf[j+16]=(k)&0xff; /* store initialised data size */
         headbuf[j+17]=(k>>8)&0xff;
         headbuf[j+18]=(k>>16)&0xff;
@@ -2554,6 +2556,9 @@ void OutputWin32file(PCHAR outname)
         headbuf[j+22]=(sectionStart>>16)&0xff;
         headbuf[j+23]=(sectionStart>>24)&0xff;
 
+        k+=fileAlign-1;
+        k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
+
         sectionStart+=k; /* update section start address for next section */
 
         outlist[i]->base+=headerVirtSize+imageBase;
@@ -2563,17 +2568,6 @@ void OutputWin32file(PCHAR outname)
         headbuf[j+15]=((outlist[i]->base-imageBase)>>24)&0xff;
 
         k=outlist[i]->winFlags; /* get characteristice for section */
-        if(k==WINF_UNDEFINED) /* undefined flags? */
-        {
-            if((outlist[i]->classindex>=0) &&
-                (stricmp(namelist[outlist[i]->classindex],"CODE")==0))
-            {
-                /* code segment */
-                k=WINF_CODE | WINF_INITDATA | WINF_EXECUTE | WINF_READABLE;
-            }
-            else    /* data segment */
-                k=WINF_INITDATA | WINF_READABLE | WINF_WRITEABLE;
-        }
         headbuf[j+36]=(k)&0xff; /* store characteristics */
         headbuf[j+37]=(k>>8)&0xff;
         headbuf[j+38]=(k>>16)&0xff;
@@ -2746,6 +2740,11 @@ void OutputWin32file(PCHAR outname)
     {
         if(outlist[i] && ((outlist[i]->attr&SEG_ALIGN) !=SEG_ABS))
         {
+            /* ensure section is aligned to file-Align */
+            while(ftell(outfile)&(fileAlign-1))
+            {
+                fputc(0,outfile);
+            }
             if(started>outlist[i]->base)
             {
                 printf("Segment overlap\n");
@@ -2781,11 +2780,6 @@ void OutputWin32file(PCHAR outname)
                     fputc(0,outfile);
                     lastout=started+1;
                 }
-                started++;
-            }
-            while(ftell(outfile)&(fileAlign-1))
-            {
-                fputc(0,outfile);
                 started++;
             }
             started=lastout=outlist[i]->base+outlist[i]->virtualSize;

@@ -719,6 +719,7 @@ long loadmod(FILE *objfile)
 			 seglist[segcount]->nameindex=GetIndex(buf,&j)-1;
 			 seglist[segcount]->classindex=GetIndex(buf,&j)-1;
 			 seglist[segcount]->overlayindex=GetIndex(buf,&j)-1;
+			 seglist[segcount]->orderindex=-1;
 			 if(seglist[segcount]->nameindex>=0)
 			 {
 				seglist[segcount]->nameindex+=namemin;
@@ -776,7 +777,21 @@ long loadmod(FILE *objfile)
 			 {
 				ReportError(ERR_BAD_SEGDEF);
 			 }
-			seglist[segcount]->winFlags=WINF_UNDEFINED; /* no windows segment flags */
+             if((seglist[segcount]->classindex>=0) &&
+                (!stricmp(namelist[seglist[segcount]->classindex],"CODE") ||
+                 !stricmp(namelist[seglist[segcount]->classindex],"TEXT")))
+            {
+                /* code segment */
+                seglist[segcount]->winFlags=WINF_CODE | WINF_INITDATA | WINF_EXECUTE | WINF_READABLE;
+            }
+            else    /* data segment */
+                seglist[segcount]->winFlags=WINF_INITDATA | WINF_READABLE | WINF_WRITEABLE;
+
+			if(!stricmp(namelist[seglist[segcount]->nameindex],"$$SYMBOLS") ||
+				!stricmp(namelist[seglist[segcount]->nameindex],"$$TYPES"))
+			{
+				seglist[segcount]->winFlags |=WINF_REMOVE;
+			}
 			 segcount++;
 			 break;
 		case LEDATA:
@@ -865,6 +880,8 @@ long loadmod(FILE *objfile)
 			 EmitLiData(lidata,prevseg,&k);
 			 li_le=(rectype==LIDATA)?PREV_LI:PREV_LI32;
 			 break;
+		case LPUBDEF:
+                case LPUBDEF32:
 		case PUBDEF:
 		case PUBDEF32:
 			 j=0;
@@ -923,9 +940,19 @@ long loadmod(FILE *objfile)
 					j+=2;
 				}
 				publics[pubcount]->typenum=GetIndex(buf,&j);
+				if(rectype==LPUBDEF || rectype==LPUBDEF32)
+				{
+					publics[pubcount]->modnum=nummods;
+				}
+				else
+				{
+					publics[pubcount]->modnum=0;
+				}
 				pubcount++;
 			 }
 			 break;
+		case LEXTDEF:
+		case LEXTDEF32:
 		case EXTDEF:
 			 for(j=0;j<reclength;)
 			 {
@@ -953,6 +980,14 @@ long loadmod(FILE *objfile)
 				externs[extcount]->typenum=GetIndex(buf,&j);
 				externs[extcount]->pubnum=-1;
 				externs[extcount]->flags=EXT_NOMATCH;
+				if((rectype==LEXTDEF) || (rectype==LEXTDEF32))
+				{
+                                	externs[extcount]->modnum=nummods;
+				}
+				else
+				{
+                                	externs[extcount]->modnum=0;
+				}
 				extcount++;
 			 }
 			 break;
@@ -1253,6 +1288,7 @@ long loadmod(FILE *objfile)
 				if(!comdefs[comcount]) ReportError(ERR_NO_MEM);
 				comdefs[comcount]->length=i;
 				comdefs[comcount]->isFar=k;
+				comdefs[comcount]->modnum=0;
 				comdefs[comcount]->name=strdup(externs[extcount]->name);
 				if(!comdefs[comcount]->name) ReportError(ERR_NO_MEM);
 				extcount++;
