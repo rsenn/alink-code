@@ -54,6 +54,7 @@ BOOL BINFinalise(PCHAR name)
     
     
     a=createSection("Global",NULL,NULL,NULL,0,1);
+    a->internal=TRUE;
     a->addressspace=TRUE;
     a->base=imageBase;
     

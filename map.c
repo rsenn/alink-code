@@ -120,6 +120,203 @@ void getLines(PSEG s)
     }
 }
 
+void dumpOldSegment(PFILE afile,PSEG seg)
+{
+    if(seg->internal)
+    {
+        return;
+    }
+    
+    fprintf(afile,"SEGMENT %s ",
+            (seg->name?seg->name:""));
+    switch(seg->combine)
+    {
+    case SEGF_PRIVATE:
+        fprintf(afile,"PRIVATE ");
+        break;
+    case SEGF_PUBLIC:
+        fprintf(afile,"PUBLIC ");
+        break;
+    case SEGF_STACK:
+        fprintf(afile,"STACK ");
+        break;
+    case SEGF_COMMON:
+        fprintf(afile,"COMMON ");
+        break;
+    default:
+        fprintf(afile,"unknown ");
+        break;
+    }
+    if(seg->use32)
+    {
+        fprintf(afile,"USE32 ");
+    }
+    else
+    {
+        fprintf(afile,"USE16 ");
+    }
+    if(seg->absolute)
+    {
+        fprintf(afile,"AT 0%04lXh ",seg->section);
+    }
+    else
+    {
+        switch(seg->align)
+        {
+        case 1:
+            fprintf(afile,"BYTE ");
+            break;
+        case 2:
+            fprintf(afile,"WORD ");
+            break;
+        case 16:
+            fprintf(afile,"PARA ");
+            break;
+        case 0x100:
+            fprintf(afile,"PAGE ");
+            break;
+        case 4:
+            fprintf(afile,"DWORD ");
+            break;
+        case 0x1000:
+            fprintf(afile,"MEMPAGE ");
+            break;
+        default:
+            fprintf(afile,"unknown ");
+        }
+    }
+    
+    if(seg->class)
+        fprintf(afile,"'%s'\n",seg->class);
+    else
+        fprintf(afile,"\n");
+    fprintf(afile,"  at %08lX, length %08lX\n",seg->base,seg->length);
+}
+
+void dumpOldGroup(PFILE afile,PSEG seg)
+{
+    UINT j;
+    fprintf(afile,"\nGroup %s:\n",seg->name?seg->name:"");
+    for(j=0;j<seg->contentCount;j++)
+    {
+        if(seg->contentList[j].flag==SEGMENT)
+        {
+            fprintf(afile,"    %s\n",seg->contentList[j].seg->name?seg->contentList[j].seg->name:"");
+        }
+    }
+}
+
+void writeOldImports(PFILE afile)
+{
+    UINT importCount;
+    UINT i;
+
+    for(i=0,importCount=0;i<globalSymbolCount;++i)
+    {
+	if(globalSymbols[i]->type!=PUB_IMPORT) continue; /* ignore non-imports */
+	if(!globalSymbols[i]->refCount) continue; /* ignore unrefenced symbols */
+        ++importCount;
+    }
+
+    if(!importCount) return;
+
+    fprintf(afile,"\n %li imports:\n",importCount);
+    for(i=0;i<globalSymbolCount;++i)
+    {
+	if(globalSymbols[i]->type!=PUB_IMPORT) continue; /* ignore non-imports */
+	if(!globalSymbols[i]->refCount) continue; /* ignore unrefenced symbols */
+
+        fprintf(afile,"%s=%s:%s(%i)\n",globalSymbols[i]->name,globalSymbols[i]->dllname,globalSymbols[i]->impname?globalSymbols[i]->impname:"",
+                globalSymbols[i]->ordinal);
+    }
+    
+}
+
+
+void generateOldMap(PCHAR mapname)
+{
+    long i,j;
+    PFILE afile;
+
+    afile=fopen(mapname,"wt");
+    if(!afile)
+    {
+	addError("Error opening map file %s",mapname);
+	return;
+    }
+    diagnostic(DIAG_VERBOSE,"Generating map file %s\n",mapname);
+
+    for(i=0;i<spaceCount;++i)
+    {
+        if(!spaceList[i]) continue;
+        
+        for(j=0;j<spaceList[i]->contentCount;++j)
+        {
+            if(spaceList[i]->contentList[j].flag==SEGMENT)
+            {
+		dumpOldSegment(afile,spaceList[i]->contentList[j].seg);
+            }
+        }
+    }
+    
+    for(i=0;i<spaceCount;++i)
+    {
+        if(!spaceList[i]) continue;
+        
+        for(j=0;j<spaceList[i]->contentCount;++j)
+        {
+            if(spaceList[i]->contentList[j].flag==SEGMENT)
+            {
+                if(spaceList[i]->contentList[j].seg->group)
+                {
+                    dumpOldGroup(afile,spaceList[i]->contentList[j].seg);
+                }
+            }
+        }
+    }
+    
+
+    if(globalSymbolCount)
+    {
+	fprintf(afile,"\npublics:\n");
+    }
+    for(i=0;i<globalSymbolCount;++i)
+    {
+        PSEG p,q;
+	if(globalSymbols[i]->type==PUB_LIBSYM) continue;
+	if(globalSymbols[i]->type==PUB_IMPORT) continue; 
+	j=globalSymbols[i]->ofs;
+	p=globalSymbols[i]->seg;
+        q=globalSymbols[i]->seg;
+	while(p && p->parent)
+	{
+	    j+=p->base;
+            q=p;
+	    p=p->parent;
+	}
+        if(q)
+        {
+            j-=q->base;
+        }
+        
+	
+	fprintf(afile,"%s at %s:%08lX\n",globalSymbols[i]->name?globalSymbols[i]->name:"",q?(q->name?q->name:""):"Absolute",j);
+    }
+    
+    if(globalExportCount)
+    {
+	fprintf(afile,"\n %li exports:\n",globalExportCount);
+	for(i=0;i<globalExportCount;i++)
+	{
+	    fprintf(afile,"%s(%lu=%s)\n",globalExports[i]->exp_name,globalExports[i]->ordinal,globalExports[i]->int_name);
+	}
+    }
+
+    writeOldImports(afile);
+    fclose(afile);
+}
+
+
 
 void generateMap(PCHAR mapname)
 {
@@ -130,10 +327,10 @@ void generateMap(PCHAR mapname)
     afile=fopen(mapname,"wt");
     if(!afile)
     {
-	printf("Error opening map file %s\n",mapname);
-	exit(1);
+	addError("Error opening map file %s",mapname);
+	return;
     }
-    printf("Generating map file %s\n",mapname);
+    diagnostic(DIAG_VERBOSE,"Generating map file %s\n",mapname);
 
     for(i=0;i<moduleCount;++i)
     {
@@ -157,8 +354,18 @@ void generateMap(PCHAR mapname)
     {
 	dumpSegment(afile,spaceList[i]);
     }
-
-    fprintf(afile,"\n%i public symbols:\n",globalSymbolCount);
+    
+    {
+        UINT pubSymCount=0;
+        
+        for(i=0;i<globalSymbolCount;++i)
+        {
+            if(globalSymbols[i]->type==PUB_LIBSYM) continue;
+            ++pubSymCount;
+        }
+        
+        fprintf(afile,"\n%lu public symbols:\n",pubSymCount);
+    }
 
     for(i=0;i<globalSymbolCount;++i)
     {
@@ -200,7 +407,7 @@ void generateMap(PCHAR mapname)
 	    p=p->parent;
 	}
 	
-	fprintf(afile,"%s: %8lu = %04X:%08lX = %08lX\n",globalLines[i].filename,globalLines[i].num,section,ofs,addr);
+	fprintf(afile,"%s: %8lu = %04lX:%08lX = %08lX\n",globalLines[i].filename,globalLines[i].num,section,ofs,addr);
     }
     
 

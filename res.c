@@ -38,7 +38,7 @@ BOOL Res32Load(PFILE f,PMODULE mod)
 	addError("Invalid resource file");
         return FALSE;
     }
-    diagnostic(DIAG_BASIC,"Loading Win32 Resource File");
+    diagnostic(DIAG_BASIC,"Loading Win32 Resource File\n");
     while(!feof(f))
     {
 	i=ftell(f);

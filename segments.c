@@ -64,6 +64,7 @@ PSEG createSection(PCHAR name,PCHAR class,PCHAR sortKey,PMODULE mod,UINT length,
     s->nocache=FALSE;
     s->nopage=FALSE;
     s->addressspace=s->group=FALSE;
+    s->internal=FALSE;
 
     s->contentCount=0;
     s->contentList=NULL;
@@ -114,6 +115,7 @@ PSEG createDuplicateSection(PSEG old)
     s->discard=old->discard;
     s->nocache=old->nocache;
     s->nopage=old->nopage;
+    s->internal=old->internal;
 
     s->parent=NULL;
 

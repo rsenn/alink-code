@@ -28,6 +28,7 @@
 #define ALINK_MAJOR 1
 #define ALINK_MINOR 7
 
+#include "basetypes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <memory.h>
@@ -37,9 +38,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
-
-#define TRUE  (1==1)
-#define FALSE (1==0)
 
 #define SWITCHCHAR '-'
 #define PATHCHARS "\\/:"
@@ -109,13 +107,6 @@
 #define DIAG_FULL    4 /* maximum normal diagnostic level */
 #define DIAG_DEBUG   5 /* full diagnostics for debugging */
 
-typedef char CHAR,*PCHAR,**PPCHAR;
-typedef unsigned char UCHAR,*PUCHAR;
-typedef unsigned long UINT;
-typedef signed long INT;
-typedef unsigned short USHORT;
-typedef signed short SHORT;
-typedef int BOOL;
 typedef FILE *PFILE;
 
 typedef struct symbol SYMBOL,*PSYMBOL,**PPSYMBOL;
@@ -248,7 +239,7 @@ struct segment
     UINT group:1,addressspace:1,absolute:1,use32:1,fpset:1,
 	moveable:1,discardable:1,shared:1,
 	code:1,initdata:1,uninitdata:1,read:1,write:1,execute:1,
-	discard:1,nocache:1,nopage:1;
+	discard:1,nocache:1,nopage:1,internal:1;
     INT section;
     UINT filepos;
     UINT contentCount;
@@ -365,7 +356,6 @@ struct exportrec
     UINT numParams;
 };
 
-
 int sortCompare(const void *x1,const void *x2);
 void ClearNbit(PUCHAR mask,long i);
 void SetNbit(PUCHAR mask,long i);
@@ -433,6 +423,7 @@ LOADFUNC MSCOFFLibLoad;
 LOADFUNC DJGPPLibLoad;
 
 void generateMap(PCHAR mapname);
+void generateOldMap(PCHAR mapname);
 
 BOOL getStub(PCHAR stubName,PUCHAR *pstubData,UINT *pstubSize);
 

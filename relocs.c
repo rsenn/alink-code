@@ -34,8 +34,8 @@ void performFixups(PSEG s)
 	}
 	if(j==s->contentCount)
 	{
-	    printf("Fixup location %08lX is outside any data in segment %s\n",r->ofs,s->name);
-	    exit(1);
+	    addError("Fixup location %08lX is outside any data in segment %s",r->ofs,s->name);
+	    continue;
 	}
 	d=s->contentList[j].data;
 	offset=r->ofs-d->offset;
@@ -52,8 +52,8 @@ void performFixups(PSEG s)
 	    pub=r->text->pubdef;
 	    if(!pub)
 	    {
-		printf("Unresolved external %s\n",r->text->name);
-		exit(1);
+		addError("Unresolved external %s",r->text->name);
+		continue;
 	    }
 	    
 	    t=pub->seg;
@@ -62,8 +62,8 @@ void performFixups(PSEG s)
 	}
 	if(!t)
 	{
-	    printf("Fixup target unresolved\n");
-	    exit(1);
+	    addError("Fixup target unresolved");
+	    continue;
 	}
 	if(r->fseg)
 	{
@@ -74,8 +74,8 @@ void performFixups(PSEG s)
 	    pub=r->fext->pubdef;
 	    if(!pub)
 	    {
-		printf("Unresolved external %s\n",r->fext->name);
-		exit(1);
+		addError("Unresolved external %s",r->fext->name);
+		continue;
 	    }
 	    f=pub->seg;
 	}
@@ -108,8 +108,8 @@ void performFixups(PSEG s)
 	case REL_FILEPOS:
 	    if(t->absolute)
 	    {
-		printf("Attempt to get file position of absolute segment\n");
-		exit(1);
+		addError("Attempt to get file position of absolute segment %s",t->name);
+		continue;
 	    }
 	    section=t->section;
 	    while(t->parent && !t->fpset)
@@ -125,8 +125,8 @@ void performFixups(PSEG s)
 	    {
 		if(f->absolute)
 		{
-		    printf("Attempt to get file position of absolute segment\n");
-		    exit(1);
+		    addError("Attempt to get file position of absolute segment %s",f->name);
+		    continue;
 		}
 		while(f->parent && !f->fpset)
 		{
@@ -158,8 +158,8 @@ void performFixups(PSEG s)
 	case REL_FRAME:
 	    if(!f)
 	    {
-		printf("Unspecified frame\n");
-		exit(1);
+		addError("Unspecified frame");
+		continue;
 	    }
 	    while(t->parent)
 	    {
@@ -188,8 +188,8 @@ void performFixups(PSEG s)
 	    }
 	    break;
 	default:
-	    printf("Unspecified reloc base\n");
-	    exit(1);
+	    addError("Unspecified reloc base");
+	    continue;
 	}
 	disp+=r->disp;
 	switch(r->rtype)
@@ -202,8 +202,8 @@ void performFixups(PSEG s)
 	case REL_OFS16:
 	    if(disp>=0x10000)
 	    {
-		printf("16-bit offset limit exceeded\n");
-		exit(1);
+		addError("16-bit offset limit exceeded");
+		continue;
 	    }
 	    
 	    delta=d->data[offset]+(d->data[offset+1]<<8);
@@ -227,13 +227,13 @@ void performFixups(PSEG s)
 	case REL_SEG:
 	    if(section<0)
 	    {
-		printf("Segmented reloc not permitted for specified frame\n");
-		exit(1);
+		addError("Segmented reloc not permitted for specified frame");
+		continue;
 	    }
 	    if(section>=0x10000)
 	    {
-		printf("Section number too large %08lX\n",section);
-		exit(1);
+		addError("Section number too large %08lX",section);
+		continue;
 	    }
 	    
 	    delta=d->data[offset]+(d->data[offset+1]<<8);
@@ -244,18 +244,18 @@ void performFixups(PSEG s)
 	case REL_PTR16:
 	    if(section<0)
 	    {
-		printf("Segmented reloc not permitted for specified frame\n");
-		exit(1);
+		addError("Segmented reloc not permitted for specified frame");
+		continue;
 	    }
 	    if(section>=0x10000)
 	    {
-		printf("Section number too large %08lX\n",section);
-		exit(1);
+		addError("Section number too large %08lX",section);
+		continue;
 	    }
 	    if(disp>=0x10000)
 	    {
-		printf("16-bit offset limit exceeded\n");
-		exit(1);
+		addError("16-bit offset limit exceeded");
+		continue;
 	    }
 	    
 	    delta=d->data[offset]+(d->data[offset+1]<<8);
@@ -271,8 +271,8 @@ void performFixups(PSEG s)
 	case REL_PTR32:
 	    if(section<0)
 	    {
-		printf("Segmented reloc not permitted for specified frame\n");
-		exit(1);
+		addError("Segmented reloc not permitted for specified frame");
+		continue;
 	    }
 	    delta=d->data[offset]+(d->data[offset+1]<<8)+(d->data[offset+2]<<16)+(d->data[offset+3]<<24);
 	    delta+=disp;
@@ -287,8 +287,8 @@ void performFixups(PSEG s)
 	    d->data[offset+5]=(delta>>8)&0xff;
 	    break;
 	default:
-	    printf("Invalid relocation type\n");
-	    exit(1);
+	    addError("Invalid relocation type");
+	    continue;
 	    break;
 	}
     }

@@ -1,4 +1,5 @@
 #include "alink.h"
+#include "mergerec.h"
 
 static void reorderGroups(void)
 {
@@ -47,7 +48,7 @@ static void combineGroups(void)
     UINT i,j,k,l;
     PSEG mgrp,s;
 
-    diagnostic(DIAG_VERBOSE,"Combining Groups");
+    diagnostic(DIAG_VERBOSE,"Combining Groups\n");
 
     for(i=0;i<globalSegCount;++i)
     {
@@ -105,6 +106,34 @@ static void combineGroups(void)
     
 }
 
+static void updateTargetNames(void)
+{
+    UINT i;
+    for(i=0;i<globalSegCount;++i)
+    {
+        PCHAR tempName,newName;
+        if(!globalSegs[i]) continue;
+        
+        tempName=globalSegs[i]->name;
+        newName=lookupTargetName(tempName);
+        if(strcmp(tempName,newName))
+        {
+            PSEG mgrp;
+        
+            mgrp=createDuplicateSection(globalSegs[i]);
+            mgrp->mod=NULL;
+            mgrp->parent=globalSegs[i]->parent;
+            mgrp->base=globalSegs[i]->base;
+            tempName=mgrp->name;
+            diagnostic(DIAG_VERBOSE,"Old name=%s, new name=%s\n",tempName,newName);
+            mgrp->name=checkStrdup(newName);
+            checkFree(tempName);
+            addSeg(mgrp,globalSegs[i]); /* add original to master */
+            globalSegs[i]=mgrp; /* replace original with master in list */
+        }
+    }
+}
+
 BOOL combineSegments(void)
 {
     UINT i,j,k,l;
@@ -144,7 +173,7 @@ BOOL combineSegments(void)
 		/* if "STACK" segments then combine, otherwise check names */
 		if(sa->combine!=SEGF_STACK)
 		{
-		    if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+		    if((sa->name && sb->name && strcmp(lookupTargetName(sa->name),lookupTargetName(sb->name))) 
 		       || (sa->name && !sb->name) || (!sa->name && sb->name)
 		       ) continue; /* skip if names don't match */
 		    if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
@@ -154,6 +183,7 @@ BOOL combineSegments(void)
 			continue; /* skip if private segs from different modules, or global */
 		}
 		
+                diagnostic(DIAG_VERBOSE,"Combining segs %s and %s\n",sa->name,sb->name);
 		/* we now have a match within the same group */
 		/* same name+class. Create master seg if not already one */
 		if(!mseg)
@@ -207,7 +237,7 @@ BOOL combineSegments(void)
 			    return FALSE;
 			}
 			
-			if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+			if((sa->name && sb->name && strcmp(lookupTargetName(sa->name),lookupTargetName(sb->name))) 
 			   || (sa->name && !sb->name) || (!sa->name && sb->name)
 			   ) continue; /* skip if names don't match */
 			if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
@@ -228,7 +258,7 @@ BOOL combineSegments(void)
 		    /* if "STACK" segments then combine, otherwise check names */
 		    if(sa->combine!=SEGF_STACK)
 		    {
-			if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+			if((sa->name && sb->name && strcmp(lookupTargetName(sa->name),lookupTargetName(sb->name))) 
 			   || (sa->name && !sb->name) || (!sa->name && sb->name)
 			   ) continue; /* skip if names don't match */
 			if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
@@ -238,6 +268,7 @@ BOOL combineSegments(void)
 			    continue; /* skip if private segs from different modules, or global */
 		    }
 		    
+                    diagnostic(DIAG_VERBOSE,"Combining segs %s and %s\n",sa->name,sb->name);
 		    /* same name+class. Create master seg if not already one */
 		    if(!mseg)
 		    {
@@ -287,7 +318,7 @@ BOOL combineSegments(void)
 	    /* if "STACK" segments then combine, otherwise check names */
 	    if(sa->combine!=SEGF_STACK)
 	    {
-		if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+		if((sa->name && sb->name && strcmp(lookupTargetName(sa->name),lookupTargetName(sb->name))) 
 		   || (sa->name && !sb->name) || (!sa->name && sb->name)
 		   ) continue; /* skip if names don't match */
 		if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
@@ -297,13 +328,18 @@ BOOL combineSegments(void)
 		    continue; /* skip if private segs from different modules, or global */
 	    }
 	    
+            diagnostic(DIAG_VERBOSE,"Combining segs %s and %s\n",sa->name,sb->name);
 	    /* same name+class. Create master seg if not already one */
 	    if(!mseg)
 	    {
+                PCHAR tempName;
 		mseg=createDuplicateSection(sa);
 		mseg->mod=NULL;
 		mseg->parent=sa->parent;
 		mseg->base=sa->base;
+                tempName=mseg->name;
+                mseg->name=checkStrdup(lookupTargetName(tempName));
+                checkFree(tempName);
 		globalSegs[i]=mseg; /* replace original group with master in list */
 		if(sa->combine==SEGF_COMMON)
 		{
@@ -327,6 +363,7 @@ BOOL combineSegments(void)
 	
     }
 
+    updateTargetNames();
     reorderGroups();
     return TRUE;
 }

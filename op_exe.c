@@ -25,12 +25,12 @@ BOOL EXEInitialise(PSWITCHPARAM sp)
 	    i=strtoul(sp->params[0],&end,0);
 	    if(errno || (*end))
 	    {
-		addError("Invalid number for maxalloc parameter\n");
+		addError("Invalid number for maxalloc parameter");
 		return FALSE;
 	    }
 	    if(i>USHRT_MAX)
 	    {
-		addError("Maxalloc value too large\n");
+		addError("Maxalloc value too large");
 		return FALSE;
 	    }
 	    maxalloc=i;
@@ -41,12 +41,12 @@ BOOL EXEInitialise(PSWITCHPARAM sp)
 	    i=strtoul(sp->params[0],&end,0);
 	    if(errno || (*end))
 	    {
-		addError("Invalid number for minalloc parameter\n");
+		addError("Invalid number for minalloc parameter");
 		return FALSE;
 	    }
 	    if(i>USHRT_MAX)
 	    {
-		addError("Minalloc value too large\n");
+		addError("Minalloc value too large");
 		return FALSE;
 	    }
 	    minalloc=i;
@@ -84,7 +84,7 @@ static BOOL addEXERelocs(PSEG seg,UINT *relCount,UINT **relOfs,PSEG **relSeg)
 	    pub=r->fext->pubdef;
 	    if(!pub)
 	    {
-		addError("Unresolved external %s\n",r->fext->name);
+		addError("Unresolved external %s",r->fext->name);
 		return FALSE;
 	    }
 	    f=pub->seg;
@@ -112,7 +112,7 @@ static BOOL addEXERelocs(PSEG seg,UINT *relCount,UINT **relOfs,PSEG **relSeg)
 		pub=r->text->pubdef;
 		if(!pub)
 		{
-		    addError("Unresolved external %s\n",r->text->name);
+		    addError("Unresolved external %s",r->text->name);
 		    return FALSE;
 		}
 		f=pub->seg;
@@ -170,7 +170,7 @@ static BOOL getStack(PSEG src,PPSEG pseg,UINT *pofs)
 	{
 	    if(gotstack)
 	    {
-		addError("Uncombined explicit stack segments\n");
+		addError("Uncombined explicit stack segments");
 		return FALSE;
 	    }
 	    
@@ -201,13 +201,14 @@ static PSEG buildEXEHeader(void)
     
     /* build header */
     header=createSection("header",NULL,NULL,NULL,0,1);
+    header->internal=TRUE;
 
     if(!addEXERelocs(spaceList[1],&relCount,&relOfs,&relSeg))
 	return FALSE;
 
     if(relCount>65535)
     {
-        addError("Too many relocations\n");
+        addError("Too many relocations");
         return FALSE;
     }
 
@@ -252,7 +253,7 @@ static PSEG buildEXEHeader(void)
     i=(k+0x1ff)>>9;
     if(i>65535)
     {
-	addError("File too large\n");
+	addError("File too large");
 	return FALSE;
     }
     headbuf[EXE_NUMPAGES]=i&0xff;
@@ -268,13 +269,13 @@ static PSEG buildEXEHeader(void)
     i+=minalloc; /* add extra paragraphs requested */
     if(i>USHRT_MAX)
     {
-	addError("Warning, minimum memory allocation overflow\n");
+	addError("Warning, minimum memory allocation overflow");
 	i=USHRT_MAX;
     }
 
     if(i>maxalloc)
     {
-	addError("Warning, minimum memory requirement exceeds maximum requested.\n");
+	addError("Warning, minimum memory requirement exceeds maximum requested.");
 	maxalloc=i;
     }
 
@@ -305,7 +306,7 @@ static PSEG buildEXEHeader(void)
     }
     else
     {
-        addError("Warning, no entry point specified\n");
+        addError("Warning, no entry point specified");
     }
 
     if(gotstack)
@@ -340,7 +341,7 @@ static PSEG buildEXEHeader(void)
     }
     else
     {
-        addError("Warning - no stack\n");
+        diagnostic(DIAG_BASIC,"Warning - no stack");
     }
 	
 
@@ -359,7 +360,7 @@ BOOL EXEFinalise(PCHAR name)
     {
 	if(globalSymbols[i]->type==PUB_IMPORT)
 	{
-	    addError("Imported symbols not allowed in MSDOS executable output\n");
+	    addError("Imported symbols not allowed in MSDOS executable output");
 	    return FALSE;
 	}
     }
@@ -367,6 +368,7 @@ BOOL EXEFinalise(PCHAR name)
     spaceList=checkMalloc(sizeof(PSEG)*2);
     
     a=createSection("Global",NULL,NULL,NULL,0,1);
+    a->internal=TRUE;
     a->addressspace=TRUE;
     a->base=0;
     spaceList[1]=a;

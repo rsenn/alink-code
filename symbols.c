@@ -141,7 +141,7 @@ PSYMBOL createSymbol(PCHAR name,long type,PMODULE mod,...)
 	/* extra params are DLL name, Import name and Import Ordinal */
 	pubdef->dllname=va_arg(ap,PCHAR);
 	pubdef->impname=va_arg(ap,PCHAR);
-	pubdef->ordinal=va_arg(ap,USHORT);
+	pubdef->ordinal=va_arg(ap,int);
 	/* ordinal is used as hint for named imports */
 	if(!pubdef->dllname || !pubdef->dllname[0])
 	{

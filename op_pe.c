@@ -322,7 +322,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
     {
 	if(objectAlign!=fileAlign)
 	{
-	    ("File alignment doesn't match object alignment, and less than page size, setting fileAlign to objectAlign");
+	    addError("File alignment doesn't match object alignment, and less than page size, setting fileAlign to objectAlign");
 	    fileAlign=objectAlign;
 	}
     }
@@ -333,6 +333,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
     importSeg->use32=TRUE;
     importSeg->initdata=TRUE;
     importSeg->read=TRUE;
+    importSeg->internal=TRUE;
     impSegNum=globalSegCount;
     globalSegs[impSegNum]=importSeg;
 
@@ -340,6 +341,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
     exportSeg->use32=TRUE;
     exportSeg->initdata=TRUE;
     exportSeg->read=TRUE;
+    exportSeg->internal=TRUE;
     expSegNum=globalSegCount+1;
     globalSegs[expSegNum]=exportSeg;
 
@@ -348,6 +350,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
     resourceSeg->initdata=TRUE;
     resourceSeg->shared=TRUE;
     resourceSeg->read=TRUE;
+    resourceSeg->internal=TRUE;
     resSegNum=globalSegCount+2;
     globalSegs[resSegNum]=resourceSeg;
     globalSegCount+=3;
@@ -360,6 +363,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
 	relocSeg->initdata=TRUE;
 	relocSeg->discardable=TRUE;
 	relocSeg->read=TRUE;
+        relocSeg->internal=TRUE;
 	relSegNum=globalSegCount;
 	globalSegs[relSegNum]=relocSeg;
 	globalSegCount+=1;
@@ -377,6 +381,7 @@ BOOL PEInitialise(PSWITCHPARAM sp)
 	debugSeg->use32=TRUE;
 	debugSeg->initdata=TRUE;
 	debugSeg->read=TRUE;
+        debugSeg->internal=TRUE;
 	debSegNum=globalSegCount;
 	globalSegs[debSegNum]=debugSeg;
 	globalSegCount+=1;
@@ -403,6 +408,7 @@ static PSEG createPEHeader(void)
     time_t now;
 
     h=createSection("PEHeader",NULL,NULL,NULL,0,1);
+    h->internal=TRUE;
     h->use32=TRUE;
     headbufSize=PE_HEADBUF_SIZE;
     headBlock=createDataBlock(NULL,0,headbufSize,8);
@@ -522,7 +528,20 @@ static PSEG createPEHeader(void)
     else
     {
 	if(!isDll)
-	    diagnostic(DIAG_BASIC,"Warning: No entry point specified");
+	    diagnostic(DIAG_BASIC,"Warning: No entry point specified\n");
+    }
+
+    if(relocSeg)
+    {
+        for(i=0;i<globalSegCount && globalSegs[i]!=relocSeg;++i);
+        if(i!=globalSegCount)
+        {
+            for(j=i;j<(globalSegCount-1);++j)
+            {
+                globalSegs[j]=globalSegs[j+1];
+            }
+            globalSegs[j]=relocSeg;
+        }
     }
 
     for(i=0,j=0,lastSeg=NULL;i<globalSegCount;++i)
@@ -848,12 +867,15 @@ static BOOL buildPEImports(void)
     if(!dllCount) return TRUE; /* no imports, all is OK */
 
     dllDir=createSection("DLL Directory",NULL,NULL,NULL,0,4);
+    dllDir->internal=TRUE;
     dllDir->use32=TRUE;
     addSeg(importSeg,dllDir);
     hintName=createSection("Hint-Name table",NULL,NULL,NULL,0,4);
+    hintName->internal=TRUE;
     hintName->use32=TRUE;
     addSeg(importSeg,hintName);
     nameTable=createSection("DLL Name table",NULL,NULL,NULL,0,4);
+    nameTable->internal=TRUE;
     nameTable->use32=TRUE;
     addSeg(importSeg,nameTable);
 
@@ -864,9 +886,11 @@ static BOOL buildPEImports(void)
 	nameEntry=createDataBlock(dllList[i].name,0,strlen(dllList[i].name)+1,1);
 	addData(nameTable,nameEntry);
 	lookup=createSection(dllList[i].name,"DLL lookup table",NULL,NULL,0,4);
+        lookup->internal=TRUE;
 	lookup->use32=TRUE;
 	addSeg(importSeg,lookup);
 	thunk=createSection(dllList[i].name,"DLL thunk table",NULL,NULL,0,4);
+        thunk->internal=TRUE;
 	thunk->use32=TRUE;
 	addSeg(importSeg,thunk);
 
@@ -1069,31 +1093,37 @@ static BOOL buildPEResources(void)
     time(&now);
 
     typeSeg=createSection("Type Directory",NULL,NULL,NULL,0,4);
+    typeSeg->internal=TRUE;
     typeSeg->use32=TRUE;
     typeSeg->shared=TRUE;
     addSeg(resourceSeg,typeSeg);
 
     idSeg=createSection("ID Directories",NULL,NULL,NULL,0,4);
+    idSeg->internal=TRUE;
     idSeg->use32=TRUE;
     idSeg->shared=TRUE;
     addSeg(resourceSeg,idSeg);
 
     langSeg=createSection("Language Directories",NULL,NULL,NULL,0,4);
+    langSeg->internal=TRUE;
     langSeg->use32=TRUE;
     langSeg->shared=TRUE;
     addSeg(resourceSeg,langSeg);
 
     dataSeg=createSection("Resource Data Entries",NULL,NULL,NULL,0,4);
+    dataSeg->internal=TRUE;
     dataSeg->use32=TRUE;
     dataSeg->shared=TRUE;
     addSeg(resourceSeg,dataSeg);
 
     realDataSeg=createSection("Resource Data",NULL,NULL,NULL,0,4);
+    realDataSeg->internal=TRUE;
     realDataSeg->use32=TRUE;
     realDataSeg->shared=TRUE;
     addSeg(resourceSeg,realDataSeg);
 
     nameSeg=createSection("Resource Names",NULL,NULL,NULL,0,4);
+    nameSeg->internal=TRUE;
     nameSeg->use32=TRUE;
     nameSeg->shared=TRUE;
     addSeg(resourceSeg,nameSeg);
@@ -1349,14 +1379,19 @@ static BOOL buildPEExports(PCHAR name)
     addData(exportSeg,hdr);
 
     nameTable=createSection("Export name table",NULL,NULL,NULL,0,4);
+    nameTable->internal=TRUE;
 
     addressTable=createSection("Export address table",NULL,NULL,NULL,0,4);
+    addressTable->internal=TRUE;
 
     ordTable=createSection("Export ordinal table",NULL,NULL,NULL,0,4);
+    ordTable->internal=TRUE;
 
     nameList=createSection("Export name list",NULL,NULL,NULL,0,4);
+    nameList->internal=TRUE;
 
     forwarderList=createSection("Export forwarder list",NULL,NULL,NULL,0,4);
+    forwarderList->internal=TRUE;
 
     for(i=0,minOrd=UINT_MAX,maxOrd=0;i<globalExportCount;++i)
     {
@@ -1615,6 +1650,7 @@ static PSEG getSegFixups(PSEG s)
     if(!s) return NULL;
 
     r=createSection("relocs",s->name,NULL,NULL,0,4);
+    r->internal=TRUE;
 
     for(i=0;i<s->relocCount;++i)
     {
@@ -1812,6 +1848,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
     UINT regionCount=0;
 
     debugData=createSection("CV Debug Data",NULL,NULL,NULL,0,1);
+    debugData->internal=TRUE;
     debugData->use32=TRUE;
 
     debugHeader=createDataBlock(NULL,0,8+16,1);
@@ -1825,9 +1862,11 @@ static PSEG buildCodeViewInfo(PCHAR outname)
     debugHeader->data[10]=12; /* length of each entry */
 
     dirList=createSection("Subdirectory list",NULL,NULL,NULL,0,1);
+    dirList->internal=TRUE;
     addSeg(debugData,dirList);
 
     subdirData=createSection("Subdirectory data",NULL,NULL,NULL,0,1);
+    subdirData->internal=TRUE;
     addSeg(debugData,subdirData);
 
     /* add module subsection */
@@ -1840,6 +1879,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
     subdirEntry->data[PE_DEBUG_SUBDIR_MODULE]=1;
 
     dataSeg=createSection("module map",NULL,NULL,NULL,0,4);
+    dataSeg->internal=TRUE;
     addSeg(subdirData,dataSeg);
 
     /* module header */
@@ -1936,6 +1976,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
     subdirEntry->data[PE_DEBUG_SUBDIR_MODULE]=1;
 
     dataSeg=createSection("line number map",NULL,NULL,NULL,0,4);
+    dataSeg->internal=TRUE;
     addSeg(subdirData,dataSeg);
 
     /* sort line-numbers into seg/offset order */
@@ -2015,6 +2056,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
 	name=fileList[i];
 
 	lineData=createSection(name,NULL,NULL,NULL,0,4);
+        lineData->internal=TRUE;
 	addSeg(dataSeg,lineData);
 
 	/* get offset of line data for this file */
@@ -2145,6 +2187,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
 
 
     dataSeg=createSection("symbol Data",NULL,NULL,NULL,0,4);
+    dataSeg->internal=TRUE;
     addSeg(subdirData,dataSeg);
 
     symHeader=createDataBlock(NULL,0,16,4);
@@ -2239,6 +2282,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
 	subdirEntry->data[PE_DEBUG_SUBDIR_MODULE+1]=0xff;
 
 	dataSeg=createSection("File Index",NULL,NULL,NULL,0,4);
+        dataSeg->internal=TRUE;
 	addSeg(subdirData,dataSeg);
 
 	symHeader=createDataBlock(NULL,0,8+4*numFiles,4);
@@ -2291,6 +2335,7 @@ static PSEG buildCodeViewInfo(PCHAR outname)
 
 
     dataSeg=createSection("Segment map",NULL,NULL,NULL,0,4);
+    dataSeg->internal=TRUE;
     addSeg(subdirData,dataSeg);
 
     symHeader=createDataBlock(NULL,0,4,4);
@@ -2396,6 +2441,7 @@ static BOOL buildPEDebug(PCHAR name)
 
     /* debug section starts with a directory listing the types of debug info available */
     debugDir=createSection("Debug Directory",NULL,NULL,NULL,0,1);
+    debugDir->internal=TRUE;
     debugDir->use32=TRUE;
     addSeg(debugSeg,debugDir);
 
@@ -2514,10 +2560,12 @@ BOOL PEFinalise(PCHAR name)
     UINT i,fp;
 
     a=createSection("Global",NULL,NULL,NULL,0,1);
+    a->internal=TRUE;
     a->addressspace=TRUE;
     a->use32=TRUE;
     a->base=imageBase;
     h=createSection("header",NULL,NULL,NULL,0,1);
+    h->internal=TRUE;
     h->use32=TRUE;
     addSeg(a,h);
 

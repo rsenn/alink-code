@@ -1,5 +1,6 @@
 #include "alink.h"
 #include "omf.h"
+#include "mergerec.h"
 
 BOOL case_sensitive=TRUE;
 BOOL padsegments=FALSE;
@@ -51,6 +52,11 @@ UINT moduleCount=0;
 PPMODULE modules=NULL;
 
 PSEG absoluteSegment=NULL;
+
+PPMERGEREC mergeList=NULL;
+UINT mergeCount=0;
+
+BOOL useOldMap=FALSE;
 
 static BOOL NULLDetect(PFILE f,PCHAR name)
 {
@@ -104,6 +110,9 @@ static CSWITCHENTRY systemSwitches[]={
     {"f",1,"Select specified output format"}, /* output format */
     {"nodeflib",0,"Don't use default libraries from object files"}, /* no default libraries */
     {"iformat",2,"Select specified input format for specified file"},
+    {"mergesegs",2,"Merge two segments together"},
+    {"v",0,"Verbose diagnostics"},
+    {"oldmap",0,"Use ALINK v1.6 compatible map files"},
 #if 0
     {"nocase",0,"Disable case sensitivity"}, /* disable case sensitivity */
     {"nosearch",1,"Don't search specified library"}, /* disable single library */
@@ -670,6 +679,23 @@ void initFormat(PSWITCHPARAM sp)
 		    fileNames[fileCount]->fmt=inputFormats+j;
 		++fileCount;
 	    }
+	    else if(!strcmp(sp[i].name,"mergesegs"))
+	    {
+		/* now add file to list, with specified format */
+                PMERGEREC newMergeRec=createMergeRec(sp[i].params[0],sp[i].params[1]);
+                
+		mergeList=checkRealloc(mergeList,(mergeCount+1)*sizeof(PMERGEREC));
+		mergeList[mergeCount]=newMergeRec;
+		++mergeCount;
+	    }
+	    else if(!strcmp(sp[i].name,"v"))
+	    {
+                diagnosticLevel=DIAG_VERBOSE;
+	    }
+	    else if(!strcmp(sp[i].name,"oldmap"))
+	    {
+                useOldMap=TRUE;
+	    }
 	}
 	if(!chosenFormat)
 	{
@@ -718,9 +744,9 @@ int main(int argc,char *argv[])
     PSWITCHPARAM sp;
     PCHAR str;
 
-    diagnosticLevel=5; /* maximum diagnostics */
+    diagnosticLevel=DIAG_BASIC;
 
-    diagnostic(DIAG_VITAL,"ALINK v%i.%i alpha (C) Copyright 1998-2000 Anthony A.J. Williams.\n",ALINK_MAJOR,ALINK_MINOR);
+    diagnostic(DIAG_VITAL,"ALINK v%i.%i (C) Copyright 1998-2004 Anthony A.J. Williams.\n",ALINK_MAJOR,ALINK_MINOR);
     diagnostic(DIAG_VITAL,"All Rights Reserved\n\n");
 
     initialise();
@@ -838,6 +864,7 @@ int main(int argc,char *argv[])
     else
     {
 	a=createSection("Global",NULL,NULL,NULL,0,1);
+        a->internal=TRUE;
 	a->addressspace=TRUE;
 	a->base=0;
 
@@ -857,7 +884,16 @@ int main(int argc,char *argv[])
     }
 
     if(mapfile)
-	generateMap(mapname);
+    {
+        if(useOldMap)
+        {
+            generateOldMap(mapname);
+        }
+        else
+        {
+            generateMap(mapname);
+        }
+    }
     
     for(i=0;i<spaceCount;++i)
     {
