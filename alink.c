@@ -2,244 +2,81 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <string.h>
+#include <limits.h>
 
-#define SWITCHCHAR '-'
-#define PATH_CHAR '\\'
+#ifndef __GCC__
+#define __inline__
+#endif
 
-#define ERR_EXTRA_DATA 1
-#define ERR_NO_HEADER 2
-#define ERR_NO_RECDATA 3
-#define ERR_NO_MEM 4
-#define ERR_INV_DATA 5
-#define ERR_INV_SEG 6
-#define ERR_BAD_FIXUP 7
-#define ERR_BAD_SEGDEF 8
-#define ERR_ABS_SEG 9
-#define ERR_DUP_PUBLIC 10
-#define ERR_NO_MODEND 11
-#define ERR_EXTRA_HEADER 12
-#define ERR_UNKNOWN_RECTYPE 13
-#define ERR_SEG_TOO_LARGE 14
-#define ERR_MULTIPLE_STARTS 15
-#define ERR_BAD_GRPDEF 16
-#define ERR_OVERWRITE 17
+#include "alink.h"
 
-#define PREV_LE 1
-#define PREV_LI 2
-#define PREV_LI32 3
+char case_sensitive=1;
+char padsegments=0;
+char mapfile=0;
+PCHAR mapname=0;
+unsigned short maxalloc=0xffff;
+int output_type=OUTPUT_EXE;
+PCHAR outname=0;
 
-#define THEADR 0x80
-#define LHEADR 0x82
-#define COMENT 0x88
-#define MODEND 0x8a
-#define MODEND32 0x8b
-#define EXTDEF 0x8c
-#define TYPDEF 0x8e
-#define PUBDEF 0x90
-#define PUBDEF32 0x91
-#define LINNUM 0x94
-#define LINNUM32 0x95
-#define LNAMES 0x96
-#define SEGDEF 0x98
-#define SEGDEF32 0x99
-#define GRPDEF 0x9a
-#define FIXUPP 0x9c
-#define FIXUPP32 0x9d
-#define LEDATA 0xa0
-#define LEDATA32 0xa1
-#define LIDATA 0xa2
-#define LIDATA32 0xa3
-#define COMDEF 0xb0
+UINT max_segs=DEF_SEG_COUNT,
+	max_names=DEF_NAME_COUNT,
+	max_grps=DEF_GRP_COUNT,
+	max_relocs=DEF_RELOC_COUNT,
+	max_imports=DEF_IMP_COUNT,
+	max_exports=DEF_EXP_COUNT,
+	max_publics=DEF_PUB_COUNT,
+	max_externs=DEF_EXT_COUNT;
 
-#define COMENT_TRANSLATOR 0x00
-#define COMENT_INTEL_COPYRIGHT 0x01
-#define COMENT_LIB_SPEC 0x81
-#define COMENT_MSDOS_VER 0x9c
-#define COMENT_MEMMODEL 0x9d
-#define COMENT_DOSSEG 0x9e
-#define COMENT_DEFLIB 0x9f
-#define COMENT_OMFEXT 0xa0
-#define COMENT_NEWOMF 0xa1
-#define COMENT_LINKPASS 0xa2
-#define COMENT_LIBMOD 0xa3 
-#define COMENT_EXESTR 0xa4
-#define COMENT_INCERR 0xa6
-#define COMENT_NOPAD 0xa7
-#define COMENT_WKEXT 0xa8
-#define COMENT_LZEXT 0xa9
-#define COMENT_PHARLAP 0xaa
-#define COMENT_IBM386 0xb0
-#define COMENT_RECORDER 0xb1
-#define COMENT_COMMENT 0xda
-#define COMENT_COMPILER 0xdb
-#define COMENT_DATE 0xdc
-#define COMENT_TIME 0xdd
-#define COMENT_USER 0xdf
-#define COMENT_DEPFILE 0xe9
-#define COMENT_COMMANDLINE 0xff
-
-#define SEG_ALIGN 0xe0
-#define SEG_COMBINE 0x1c
-#define SEG_BIG 0x02
-#define SEG_USE32 0x01
-
-#define SEG_ABS 0x00
-#define SEG_BYTE 0x20
-#define SEG_WORD 0x40
-#define SEG_PARA 0x60
-#define SEG_PAGE 0x80
-#define SEG_DWORD 0xa0
-#define SEG_MEMPAGE 0xc0
-#define SEG_BADALIGN 0xe0
-
-#define SEG_PRIVATE 0x00
-#define SEG_PUBLIC 0x08
-#define SEG_PUBLIC2 0x10
-#define SEG_STACK 0x14
-#define SEG_COMMON 0x18
-#define SEG_PUBLIC3 0x1c
-
-#define REL_SEGDISP 0
-#define REL_EXTDISP 2
-#define REL_GRPDISP 1
-#define REL_EXPFRAME 3
-#define REL_SEGONLY 4
-#define REL_EXTONLY 6
-#define REL_GRPONLY 5
-
-#define REL_SEGFRAME 0
-#define REL_GRPFRAME 1
-#define REL_EXTFRAME 2
-#define REL_LILEFRAME 4
-#define REL_TARGETFRAME 5
-
-#define FIX_SELFREL 0x10
-#define FIX_MASK (0x0f+FIX_SELFREL)
-
-#define FIX_THRED 0x08
-#define THRED_MASK 0x07
-
-#define FIX_LBYTE 0
-#define FIX_OFS16 1
-#define FIX_BASE 2
-#define FIX_PTR1616 3
-#define FIX_HBYTE 4
-#define FIX_OFS16_2 5
-#define FIX_OFS32 9
-#define FIX_PTR1632 11
-#define FIX_OFS32_2 13
-
-#define FIX_SELF_LBYTE (FIX_LBYTE+FIX_SELFREL)
-#define FIX_SELF_OFS16 (FIX_OFS16+FIX_SELFREL)
-#define FIX_SELF_OFS16_2 (FIX_OFS16_2+FIX_SELFREL)
-#define FIX_SELF_OFS32 (FIX_OFS32+FIX_SELFREL)
-#define FIX_SELF_OFS32_2 (FIX_OFS32_2+FIX_SELFREL)
-
-#define OUTPUT_COM 1
-#define OUTPUT_EXE 2
-
-typedef char *PCHAR;
-typedef unsigned char *PUCHAR;
-typedef unsigned long UINT;
-
-typedef struct __seg {
- long nameindex;
- long classindex;
- long overlayindex;
- UINT length;
- UINT absframe;
- UINT absofs;
- UINT base;
- unsigned char attr;
- PUCHAR data;
- PUCHAR datmask;
-} SEG, *PSEG, **PPSEG;
-
-typedef struct __datablock {
- long count;
- long blocks;
- long dataofs;
- void *data;
-} DATABLOCK, *PDATABLOCK, **PPDATABLOCK;
-
-typedef struct __pubdef {
- PCHAR name;
- long segnum;
- long grpnum;
- long typenum;
- UINT ofs;
-} PUBLIC, *PPUBLIC;
-
-typedef struct __extdef {
- PCHAR name;
- long typenum;
- long pubnum;
-} EXTREC, *PEXTREC;
-
-typedef struct __reloc {
- UINT ofs;
- long segnum;
- unsigned char ftype,ttype,rtype;
- long target;
- UINT disp;
- long frame;
-} RELOC, *PRELOC;
-
-typedef struct __grp {
- long nameindex;
- long numsegs;
- long segindex[256];
- long segnum;
-} GRP, *PGRP;
-
-FILE *afile;
-UINT filepos;
-long reclength;
-unsigned char rectype;
-char case_sensitive;
-char padsegments;
-unsigned short maxalloc;
-unsigned char buf[65536];
-PCHAR namelist[1024];
-UINT namecount,namemin;
-PSEG seglist[1024];
-PPSEG outlist;
-UINT segcount,segmin,outcount;
-PGRP grplist[1024];
-UINT grpcount,grpmin;
-char li_le;
-PDATABLOCK lidata;
-UINT prevofs;
-long prevseg;
-PPUBLIC publics[1024];
-UINT pubcount,pubmin;
-PEXTREC externs[1024];
-UINT extcount,extmin;
-PRELOC relocs[65536];
-UINT fixcount,fixmin;
-UINT nummods;
-PCHAR modname[256];
-UINT filecount;
-PCHAR filename[256];
-PCHAR outname;
-long invext;
-long gotstart;
+FILE *afile=0;
+UINT filepos=0;
+long reclength=0;
+unsigned char rectype=0;
+char li_le=0;
+UINT prevofs=0;
+long prevseg=0;
+long gotstart=0;
 RELOC startaddr;
-long errcount;
 
-int output_type;
+long errcount=0;
 
-void __inline__ ClearNbit(PUCHAR mask,long i)
+unsigned char buf[65536];
+PDATABLOCK lidata;
+
+PPCHAR namelist;
+PPSEG seglist;
+PPSEG outlist;
+PPGRP grplist;
+PPPUBLIC publics;
+PPEXTREC externs;
+PPRELOC relocs;
+PPIMPREC impdefs;
+PPEXPREC expdefs;
+PPLIBFILE libfiles;
+PCHAR modname[256];
+PCHAR filename[256];
+UINT namecount=0,namemin=0,
+	segcount=0,segmin=0,outcount=0,
+	grpcount=0,grpmin=0,
+	pubcount=0,pubmin=0,
+	extcount=0,extmin=0,
+	fixcount=0,fixmin=0,
+	impcount=0,impmin=0,impsreq=0,
+	expcount=0,expmin=0,
+	nummods=0,
+	filecount=0,
+	libcount=0;
+	
+__inline__ void ClearNbit(PUCHAR mask,long i)
 {
 	mask[i/8]&=!(1<<(i%8));
 }
 
-void __inline__ SetNbit(PUCHAR mask,long i)
+__inline__ void SetNbit(PUCHAR mask,long i)
 {
 	mask[i/8]|=(1<<(i%8));
 }
 
-char __inline__ GetNbit(PUCHAR mask,long i)
+__inline__ char GetNbit(PUCHAR mask,long i)
 {
 	return (mask[i/8]>>(i%8))&1;
 }
@@ -314,6 +151,12 @@ void ReportError(long errnum)
 			 break;
 		case ERR_OVERWRITE:
 			printf(" - overlapping data regions\n");
+			break;
+		case ERR_INVALID_COMENT:
+			printf(" - COMENT record format invalid\n");
+			break;
+		case ERR_ILLEGAL_IMPORTS:
+			printf(" - Imports required to link, and not supported by output file type\n");
 			break;
 		default:
 				printf("\n");
@@ -661,6 +504,8 @@ long loadmod(FILE *objfile)
 			 extmin=extcount;
 			 fixmin=fixcount;
 			 grpmin=grpcount;
+			 impmin=impcount;
+			 expmin=expcount;
 			 nummods++;
 			 break;
 		case COMENT:
@@ -674,8 +519,191 @@ long loadmod(FILE *objfile)
 			 {
 				switch(buf[1])
 				{
+				case COMENT_LIB_SPEC:
+				case COMENT_DEFLIB:
+					break;
+				case COMENT_OMFEXT:
+					if(reclength<4)
+					{
+						ReportError(ERR_INVALID_COMENT);
+					}
+					switch(buf[2])
+					{
+					case EXT_IMPDEF:
+						j=4;
+						if(reclength<(j+4))
+						{
+							ReportError(ERR_INVALID_COMENT);
+						}
+						impdefs[impcount]=malloc(sizeof(IMPREC));
+						if(!impdefs[impcount])
+						{
+							ReportError(ERR_NO_MEM);
+						}
+						impdefs[impcount]->flags=buf[3];
+						impdefs[impcount]->int_name=malloc(buf[j]+1);
+						if(!impdefs[impcount]->int_name)
+						{
+							ReportError(ERR_NO_MEM);
+						}
+						for(i=0;i<buf[j];i++)
+						{
+							impdefs[impcount]->int_name[i]=buf[j+i+1];
+						}
+						j+=buf[j]+1;
+						impdefs[impcount]->int_name[i]=0;
+						if(!case_sensitive)
+						{
+							strupr(impdefs[impcount]->int_name);
+						}
+						impdefs[impcount]->mod_name=malloc(buf[j]+1);
+						if(!impdefs[impcount]->mod_name)
+						{
+							ReportError(ERR_NO_MEM);
+						}
+						for(i=0;i<buf[j];i++)
+						{
+							impdefs[impcount]->mod_name[i]=buf[j+i+1];
+						}
+						j+=buf[j]+1;
+						impdefs[impcount]->mod_name[i]=0;
+						if(!case_sensitive)
+						{
+							strupr(impdefs[impcount]->mod_name);
+						}
+						if(impdefs[impcount]->flags)
+						{
+							impdefs[impcount]->ordinal=buf[j]+256*buf[j+1];
+							j+=2;
+						}
+						else
+						{
+							if(buf[j])
+							{
+								impdefs[impcount]->imp_name=malloc(buf[j]+1);
+								if(!impdefs[impcount]->imp_name)
+								{
+									ReportError(ERR_NO_MEM);
+								}
+								for(i=0;i<buf[j];i++)
+								{
+									impdefs[impcount]->imp_name[i]=buf[j+i+1];
+								}
+								j+=buf[j]+1;
+								impdefs[impcount]->imp_name[i]=0;
+								if(!case_sensitive)
+								{
+									strupr(impdefs[impcount]->imp_name);
+								}
+							}
+							else
+							{
+								impdefs[impcount]->imp_name=malloc(strlen(impdefs[impcount]->int_name)+1);
+								if(!impdefs[impcount]->imp_name)
+								{
+									ReportError(ERR_NO_MEM);
+								}
+								strcpy(impdefs[impcount]->imp_name,impdefs[impcount]->int_name); 
+							}
+						}
+						impcount++;						   
+						break;
+					case EXT_EXPDEF:
+						expdefs[expcount]=malloc(sizeof(EXPREC));
+						if(!expdefs[expcount])
+						{
+							ReportError(ERR_NO_MEM);
+						}
+						j=4;
+						expdefs[expcount]->flags=buf[3];
+						expdefs[expcount]->exp_name=malloc(buf[j]+1);
+						if(!expdefs[expcount]->exp_name)
+						{
+							ReportError(ERR_NO_MEM);
+						}
+						for(i=0;i<buf[j];i++)
+						{
+							expdefs[expcount]->exp_name[i]=buf[j+i+1];
+						}
+						expdefs[expcount]->exp_name[buf[j]]=0;
+						if(!case_sensitive)
+						{
+							strupr(expdefs[expcount]->exp_name);
+						}
+						j+=buf[j]+1;
+						if(buf[j])
+						{
+							expdefs[expcount]->int_name=malloc(buf[j]+1);
+							if(!expdefs[expcount]->int_name)
+							{
+								ReportError(ERR_NO_MEM);
+							}
+							for(i=0;i<buf[j];i++)
+							{
+								expdefs[expcount]->int_name[i]=buf[j+i+1];
+							}
+							expdefs[expcount]->int_name[buf[j]]=0;
+							if(!case_sensitive)
+							{
+								strupr(expdefs[expcount]->int_name);
+							}
+						}
+						else
+						{
+							expdefs[expcount]->int_name=malloc(strlen(expdefs[expcount]->exp_name)+1);
+							if(!expdefs[expcount]->int_name)
+							{
+								ReportError(ERR_NO_MEM);
+							}
+							strcpy(expdefs[expcount]->int_name,expdefs[expcount]->exp_name);
+						}
+						j+=buf[j]+1;
+						if(expdefs[expcount]->flags&EXP_ORD)
+						{
+							expdefs[expcount]->ordinal=buf[j]+256*buf[j+1];
+						}
+						else
+						{
+							expdefs[expcount]->ordinal=0;
+						}
+						expcount++;
+						break;
+					default:
+						ReportError(ERR_INVALID_COMENT);
+					}
+					break;
+				case COMENT_DOSSEG:
+					break;
 				case COMENT_TRANSLATOR:
 				case COMENT_INTEL_COPYRIGHT:
+				case COMENT_MSDOS_VER:
+				case COMENT_MEMMODEL:
+				case COMENT_NEWOMF:
+				case COMENT_LINKPASS:
+				case COMENT_LIBMOD:
+				case COMENT_EXESTR:
+				case COMENT_INCERR:
+				case COMENT_NOPAD:
+				case COMENT_WKEXT:
+				case COMENT_LZEXT:
+				case COMENT_PHARLAP:
+				case COMENT_IBM386:
+				case COMENT_RECORDER:
+				case COMENT_COMMENT:
+				case COMENT_COMPILER:
+				case COMENT_DATE:
+				case COMENT_TIME:
+				case COMENT_USER:
+				case COMENT_DEPFILE:
+				case COMENT_COMMANDLINE:
+				case COMENT_PUBTYPE:
+				case COMENT_COMPARAM:
+				case COMENT_TYPDEF:
+				case COMENT_STRUCTMEM:
+				case COMENT_OPENSCOPE:
+				case COMENT_LOCAL:
+				case COMENT_ENDSCOPE:
+				case COMENT_SOURCEFILE:
 					break;
 				default:
 					printf("COMENT Record (unknown type %02X)\n",buf[1]);
@@ -973,6 +1001,7 @@ long loadmod(FILE *objfile)
 					strupr(externs[extcount]->name);
 				}
 				externs[extcount]->typenum=GetIndex(buf,&j);
+				externs[extcount]->pubnum=-1;
 				extcount++;
 			 }
 			 break;
@@ -1112,6 +1141,116 @@ long loadmod(FILE *objfile)
 	return 0;
 }
 
+void loadlib(FILE *libfile,PCHAR libname)
+{
+	unsigned int i,j,k,n;
+	PCHAR name;
+	unsigned short modpage;
+	PLIBFILE p;
+	
+	libfiles[libcount]=malloc(sizeof(LIBFILE));
+	if(!libfiles[libcount])
+	{
+		ReportError(ERR_NO_MEM);
+	}
+	p=libfiles[libcount];
+	p->filename=malloc(strlen(libname)+1);
+	if(!p->filename)
+	{
+		ReportError(ERR_NO_MEM);
+	}
+	strcpy(p->filename,libname);
+	
+	if(fread(buf,1,3,libfile)!=3)
+	{
+		printf("Error reading from file\n");
+		exit(1);
+	}
+	p->blocksize=buf[1]+256*buf[2];
+	if(fread(buf,1,p->blocksize,libfile)!=p->blocksize)
+	{
+		printf("Error reading from file\n");
+		exit(1);
+	}
+	p->blocksize+=3;
+	p->dicstart=buf[0]+(buf[1]<<8)+(buf[2]<<16)+(buf[3]<<24);
+	p->numdicpages=buf[4]+256*buf[5];
+	p->flags=buf[6];
+	fseek(libfile,p->dicstart,SEEK_SET);
+	
+	p->syms=malloc(sizeof(PLIBENTRY)*37*p->numdicpages);
+	if(!p->syms)
+	{
+		ReportError(ERR_NO_MEM);
+	}
+	
+	p->numsyms=0;
+	
+	for(i=0;i<p->numdicpages;i++)
+	{
+		if(fread(buf,1,512,libfile)!=512)
+		{
+			printf("Error reading from file\n");
+			exit(1);
+		}
+		for(j=0;j<37;j++)
+		{
+			k=buf[j]*2;
+			if(k)
+			{
+				name=malloc(buf[k]+1);
+				if(!name)
+				{
+					ReportError(ERR_NO_MEM);
+				}
+				for(n=0;n<buf[k];n++)
+				{
+					name[n]=buf[n+k+1];
+				}
+				name[buf[k]]=0;
+				k+=buf[k]+1;
+				modpage=buf[k]+256*buf[k+1];
+				if(!p->flags)
+				{
+					strupr(name);
+				}
+				if(name[strlen(name)-1]=='!')
+				{
+					name[strlen(name)-1]=0;
+					free(name);
+				}
+				else
+				{
+					p->syms[p->numsyms]=malloc(sizeof(LIBENTRY));
+					if(!p->syms[p->numsyms])
+					{
+						ReportError(ERR_NO_MEM);
+					}
+					p->syms[p->numsyms]->name=name;
+					p->syms[p->numsyms]->modpage=modpage;
+					p->numsyms++;
+				}
+			}
+		}
+	}
+	libcount++;
+}
+
+void loadlibmod(PLIBFILE p,unsigned short modpage)
+{
+	FILE *libfile;
+	
+	libfile=fopen(p->filename,"rb");
+	if(!libfile)
+	{
+		printf("Error opening file %s\n",p->filename);
+		exit(1);
+	}
+	fseek(libfile,modpage*p->blocksize,SEEK_SET);
+	loadmod(libfile);
+	fclose(libfile);
+}
+
 void GetFixupTarget(PRELOC r,long *tseg,UINT *tofs)
 {
 	long baseseg;
@@ -1165,11 +1304,11 @@ void GetFixupTarget(PRELOC r,long *tseg,UINT *tofs)
 			printf("Reloc:Unsupported TARGET type %i\n",r->ttype);
 			errcount++;
 	}
-	if(!seglist[targseg])
+	if((!errcount) && (!seglist[targseg]))
 	{
 		errcount++;
 	}
-	if(!seglist[baseseg])
+	if((!errcount) && (!seglist[baseseg]))
 	{
 		errcount++;
 	}
@@ -1444,6 +1583,11 @@ void OutputEXEfile(PCHAR outname)
 	long relcount;
 	int gotstack;
 	UINT totlength;
+	
+	if(impsreq)
+	{
+		ReportError(ERR_ILLEGAL_IMPORTS);
+	}
 
 	errcount=0;
 	gotstack=0;
@@ -2131,27 +2275,10 @@ void combine_groups(long i,long j)
 long main(long argc,char *argv[])
 {
 		long i,j,k;
+		long old_nummods;
 
-		printf("ALINK v0.01 (C) Copyright 1998 Anthony A.J. Williams.\n");
+                printf("ALINK v0.02 (C) Copyright 1998 Anthony A.J. Williams.\n");
 		printf("All Rights Reserved\n\n");
-
-		namemin=namecount=0;
-		segmin=segcount=0;
-		grpmin=grpcount=0;
-		pubmin=pubcount=0;
-		extmin=extcount=0;
-		fixmin=fixcount=0;
-		nummods=0;
-		filecount=0;
-
-		gotstart=0;
-
-		case_sensitive=1;
-		maxalloc=0xffff;
-		padsegments=0;
-		outname=0;
-		
-		output_type=OUTPUT_EXE;
 
 		for(i=1;i<argc;i++)
 		{
@@ -2201,6 +2328,28 @@ long main(long argc,char *argv[])
 						else if(argv[i][2]=='-')
 						{
 							padsegments=0;
+							break;
+						}
+					default:
+						printf("Invalid switch %s\n",argv[i]);
+						exit(1);
+					}
+					break;
+				case 'm':
+					switch(strlen(argv[i]))
+					{
+					case 2:
+						mapfile=1;
+						break;
+					case 3:
+						if(argv[i][2]=='+')
+						{
+							mapfile=1;
+							break;
+						}
+						else if(argv[i][2]=='-')
+						{
+							mapfile=0;
 							break;
 						}
 					default:
@@ -2280,6 +2429,52 @@ long main(long argc,char *argv[])
 			exit(1);
 		}
 
+		seglist=malloc(max_segs*sizeof(PSEG));
+		if(!seglist)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		namelist=malloc(max_names*sizeof(PCHAR));
+		if(!namelist)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		grplist=malloc(max_grps*sizeof(PGRP));
+		if(!grplist)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		relocs=malloc(max_relocs*sizeof(PRELOC));
+		if(!relocs)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		impdefs=malloc(max_imports*sizeof(PIMPREC));
+		if(!impdefs)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		expdefs=malloc(max_exports*sizeof(PEXPREC));
+		if(!expdefs)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		publics=malloc(max_publics*sizeof(PPUBLIC));
+		if(!publics)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		externs=malloc(max_externs*sizeof(PEXTREC));
+		if(!externs)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+		libfiles=malloc(DEF_LIBFILE_COUNT*sizeof(PLIBFILE));
+		if(!libfiles)
+		{
+			ReportError(ERR_NO_MEM);
+		}
+
 		if(!outname)
 		{
 			outname=malloc(strlen(filename[0])+1+4);
@@ -2309,6 +2504,37 @@ long main(long argc,char *argv[])
 				break;
 			}
 		}
+		
+		if(mapfile)
+		{
+			if(!mapname)
+			{
+				mapname=malloc(strlen(outname)+1+4);
+				if(!mapname)
+				{
+					ReportError(ERR_NO_MEM);
+				}
+				strcpy(mapname,outname);
+				i=strlen(mapname);
+				while((i>=0)&&(mapname[i]!='.')&&(mapname[i]!=PATH_CHAR)&&(mapname[i]!=':'))
+				{
+					i--;
+				}
+				if(mapname[i]!='.')
+				{
+					i=strlen(mapname);
+				}
+				strcpy(mapname+i,".MAP");
+			}			 
+		}
+		else
+		{
+			if(mapname)
+			{
+				free(mapname);
+				mapname=0;
+			}
+		}
 
 		for(i=0;i<filecount;i++)
 		{
@@ -2320,8 +2546,41 @@ long main(long argc,char *argv[])
 			}
 			filepos=0;
 			printf("Loading file %s\n",filename[i]);
-			loadmod(afile);
+			j=fgetc(afile);
+			fseek(afile,0,SEEK_SET);
+			switch(j)
+			{
+			case LIBHDR:
+				loadlib(afile,filename[i]);
+				break;
+			case THEADR:
+			case LHEADR:
+				loadmod(afile);
+				break;
+			default:
+				printf("Unknown file type\n");
+				fclose(afile);
+				exit(1);
+			}
 			fclose(afile);
+		}
+		
+		if(!nummods)
+		{
+			printf("No required modules specified\n");
+			exit(1);
+		}
+		
+		for(i=0;i<expcount;i++)
+		{
+			expdefs[i]->pubnum=-1;
+			for(j=0;j<pubcount;j++)
+			{
+				if(!strcmp(expdefs[i]->int_name,publics[j]->name))
+				{
+					expdefs[i]->pubnum=j;
+				}
+			}
 		}
 
 		for(i=0;i<extcount;i++)
@@ -2336,11 +2595,154 @@ long main(long argc,char *argv[])
 			}
 			if(externs[i]->pubnum<0)
 			{
-				printf("Unresolved external %s\n",externs[i]->name);
+				for(j=0;j<impcount;j++)
+				{
+					if(!strcmp(externs[i]->name,impdefs[j]->int_name))
+					{
+						externs[i]->pubnum=LONG_MAX;
+						externs[i]->impnum=j;
+						impsreq++;
+					}
+				}
+			}
+			if(externs[i]->pubnum<0)
+			{
+				for(j=0;j<expcount;j++)
+				{
+					if(!strcmp(externs[i]->name,expdefs[j]->exp_name))
+					{
+						externs[i]->pubnum=expdefs[j]->pubnum;
+					}
+				}
+			}
+		}
+		
+		do
+		{
+			old_nummods=nummods;
+			for(i=0;(i<expcount)&&(nummods==old_nummods);i++)
+			{
+				if(expdefs[i]->pubnum<0)
+				{
+					for(j=0;(j<libcount)&&(nummods==old_nummods);j++)
+					{
+						for(k=0;(k<libfiles[j]->numsyms)&&(nummods==old_nummods);k++)
+						{
+							if((libfiles[j]->flags==0) || (case_sensitive==0))
+							{
+								if(stricmp(libfiles[j]->syms[k]->name,expdefs[i]->int_name)==0)
+								{
+									loadlibmod(libfiles[j],libfiles[j]->syms[k]->modpage);
+								}
+							} 
+							else
+							{
+								if(strcmp(libfiles[j]->syms[k]->name,expdefs[i]->int_name)==0)
+								{
+									loadlibmod(libfiles[j],libfiles[j]->syms[k]->modpage);
+								}
+							}
+						}
+					}
+				}
+			}
+			for(i=0;(i<extcount)&&(nummods==old_nummods);i++)
+			{
+				if(externs[i]->pubnum<0)
+				{
+					for(j=0;(j<libcount)&&(nummods==old_nummods);j++)
+					{
+						for(k=0;(k<libfiles[j]->numsyms)&&(nummods==old_nummods);k++)
+						{
+							if((libfiles[j]->flags==0) || (case_sensitive==0))
+							{
+								if(stricmp(libfiles[j]->syms[k]->name,externs[i]->name)==0)
+								{
+									loadlibmod(libfiles[j],libfiles[j]->syms[k]->modpage);
+								}
+							} 
+							else
+							{
+								if(strcmp(libfiles[j]->syms[k]->name,externs[i]->name)==0)
+								{
+									loadlibmod(libfiles[j],libfiles[j]->syms[k]->modpage);
+								}
+							}
+						}
+					}
+				}
+			}
+			if(nummods!=old_nummods)
+			{
+				for(i=0;i<expcount;i++)
+				{
+					if(expdefs[i]->pubnum<0)
+					{
+						for(j=0;j<pubcount;j++)
+						{
+							if(!strcmp(expdefs[i]->int_name,publics[j]->name))
+							{
+								expdefs[i]->pubnum=j;
+							}
+						}
+					}
+				}
+
+				for(i=0;i<extcount;i++)
+				{
+					if(externs[i]->pubnum<0)
+					{
+						for(j=0;j<pubcount;j++)
+						{
+							if(!strcmp(externs[i]->name,publics[j]->name))
+							{
+								externs[i]->pubnum=j;
+							}
+						}
+						if(externs[i]->pubnum<0)
+						{
+							for(j=0;j<impcount;j++)
+							{
+								if(!strcmp(externs[i]->name,impdefs[j]->int_name))
+								{
+									externs[i]->pubnum=LONG_MAX;
+									externs[i]->impnum=j;
+									impsreq++;
+								}
+							}
+						}
+						if(externs[i]->pubnum<0)
+						{
+							for(j=0;j<expcount;j++)
+							{
+								if(!strcmp(externs[i]->name,expdefs[j]->exp_name))
+								{
+									externs[i]->pubnum=expdefs[j]->pubnum;
+								}
+							}
+						}
+					}
+				}
+			}
+		} while (old_nummods!=nummods);
+
+		for(i=0;i<expcount;i++)
+		{
+			if(expdefs[i]->pubnum<0)
+			{
+				printf("Unresolved export %s=%s\n",expdefs[i]->exp_name,expdefs[i]->int_name);
 				errcount++;
 			}
 		}
 
+		for(i=0;i<extcount;i++)
+		{
+			if(externs[i]->pubnum<0)
+			{
+				printf("Unresolved external %s\n",externs[i]->name);
+				errcount++;
+			}
+		}
 		if(errcount!=0)
 		{
 			exit(1);
@@ -2475,7 +2877,6 @@ long main(long argc,char *argv[])
 		}
 		
 		j=0;
-		k=0;
 		for(i=0;i<outcount;i++)
 		{
 			if(outlist[i])
@@ -2502,128 +2903,6 @@ long main(long argc,char *argv[])
 			}
 		}
 
-		printf("\n %li segments:\n",segcount);
-		for(i=0;i<segcount;i++)
-		{
-		if(seglist[i])
-		{
-			printf("SEGMENT %s ",namelist[seglist[i]->nameindex]);
-			switch(seglist[i]->attr&SEG_COMBINE)
-			{
-			case SEG_PRIVATE:
-				 printf("PRIVATE ");
-				 break;
-			case SEG_PUBLIC:
-				 printf("PUBLIC ");
-				 break;
-			case SEG_PUBLIC2:
-				 printf("PUBLIC(2) ");
-				 break;
-			case SEG_STACK:
-				 printf("STACK ");
-				 break;
-			case SEG_COMMON:
-				 printf("COMMON ");
-				 break;
-			case SEG_PUBLIC3:
-				 printf("PUBLIC(3) ");
-				 break;
-			default:
-				 printf("unknown ");
-				 break;
-			}
-			if(seglist[i]->attr&SEG_USE32)
-			{
-				printf("USE32 ");
-			}
-			else
-			{
-				printf("USE16 ");
-			}
-			switch(seglist[i]->attr&SEG_ALIGN)
-			{
-			case SEG_ABS:
-				 printf("AT 0%04lXh ",seglist[i]->absframe);
-				 break;
-			case SEG_BYTE:
-				 printf("BYTE ");
-				 break;
-			case SEG_WORD:
-				 printf("WORD ");
-				 break;
-			case SEG_PARA:
-				 printf("PARA ");
-				 break;
-			case SEG_PAGE:
-				 printf("PAGE ");
-				 break;
-			case SEG_DWORD:
-				 printf("DWORD ");
-				 break;
-			case SEG_MEMPAGE:
-				 printf("MEMPAGE ");
-				 break;
-			default:
-				 printf("unknown ");
-			}
-			printf("'%s'\n",namelist[seglist[i]->classindex]);
-			printf("  at %08lX, length %08lX\n",seglist[i]->base,seglist[i]->length);
-		}
-		}
-
-		printf("\n %li publics:\n",pubcount);
-		for(i=0;i<pubcount;i++)
-		{
-			printf("%s at %s:%08lX\n",
-				publics[i]->name,
-				(publics[i]->segnum>=0) ? namelist[seglist[publics[i]->segnum]->nameindex] : "Absolute",
-				publics[i]->ofs);
-		}
-
-		printf("\n %li externals:\n",extcount);
-		for(i=0;i<extcount;i++)
-		{
-			printf("%s\n",externs[i]->name);
-		}
-
-/*
-		printf("\n %i relocations\n",fixcount);
-		for(i=0;i<fixcount;i++)
-		{
-			switch(relocs[i]->rtype&0xf)
-			{
-			case 0:
-				 printf("Low order offset byte ");
-				 break;
-			case 1:
-				 printf("16-bit offset ");
-				 break;
-			case 2:
-				 printf("16-bit segment number ");
-				 break;
-			case 3:
-				 printf("16:16 pointer ");
-				 break;
-			case 4:
-				 printf("High order byte of 16bit offset ");
-				 break;
-			case 5:
-				 printf("16-bit offset(2) ");
-				 break;
-			case 9:
-				 printf("32-bit offset ");
-				 break;
-			case 11:
-				 printf("16:32 pointer ");
-				 break;
-			case 13:
-				 printf("32-bit offset(2) ");
-				 break;
-			default:
-			}
-			printf("at %s:%08X\n",namelist[seglist[relocs[i]->segnum]->nameindex],relocs[i]->ofs);
-		}
-*/
 		switch(output_type)
 		{
 		case OUTPUT_COM:
@@ -2636,6 +2915,115 @@ long main(long argc,char *argv[])
 			printf("Invalid output type\n");
 			exit(1);
 			break;
+		}
+		if(mapfile)
+		{
+			afile=fopen(mapname,"wt");
+			if(!afile)
+			{
+				printf("Error opening map file %s\n",mapname);
+				exit(1);
+			}
+			
+			for(i=0;i<segcount;i++)
+			{
+				if(seglist[i])
+				{
+					fprintf(afile,"SEGMENT %s ",namelist[seglist[i]->nameindex]);
+					switch(seglist[i]->attr&SEG_COMBINE)
+					{
+					case SEG_PRIVATE:
+						 fprintf(afile,"PRIVATE ");
+						 break;
+					case SEG_PUBLIC:
+						 fprintf(afile,"PUBLIC ");
+						 break;
+					case SEG_PUBLIC2:
+						 fprintf(afile,"PUBLIC(2) ");
+						 break;
+					case SEG_STACK:
+						 fprintf(afile,"STACK ");
+						 break;
+					case SEG_COMMON:
+						 fprintf(afile,"COMMON ");
+						 break;
+					case SEG_PUBLIC3:
+						 fprintf(afile,"PUBLIC(3) ");
+						 break;
+					default:
+						 fprintf(afile,"unknown ");
+						 break;
+					}
+					if(seglist[i]->attr&SEG_USE32)
+					{
+						fprintf(afile,"USE32 ");
+					}		
+					else
+					{
+						fprintf(afile,"USE16 ");
+					}
+					switch(seglist[i]->attr&SEG_ALIGN)
+					{
+					case SEG_ABS:
+						 fprintf(afile,"AT 0%04lXh ",seglist[i]->absframe);
+						 break;
+					case SEG_BYTE:
+						 fprintf(afile,"BYTE ");
+						 break;
+					case SEG_WORD:
+						 fprintf(afile,"WORD ");
+						 break;
+					case SEG_PARA:
+						 fprintf(afile,"PARA ");
+						 break;
+					case SEG_PAGE:
+						 fprintf(afile,"PAGE ");
+						 break;
+					case SEG_DWORD:
+						 fprintf(afile,"DWORD ");
+						 break;
+					case SEG_MEMPAGE:
+						 fprintf(afile,"MEMPAGE ");
+						 break;
+					default:
+						 fprintf(afile,"unknown ");
+					}
+					fprintf(afile,"'%s'\n",namelist[seglist[i]->classindex]);
+					fprintf(afile,"  at %08lX, length %08lX\n",seglist[i]->base,seglist[i]->length);
+				}
+			}
+
+			if(pubcount)
+			{
+				fprintf(afile,"\n %li publics:\n",pubcount);
+				for(i=0;i<pubcount;i++)
+				{
+					fprintf(afile,"%s at %s:%08lX\n",
+						publics[i]->name,
+						(publics[i]->segnum>=0) ? namelist[seglist[publics[i]->segnum]->nameindex] : "Absolute",
+						publics[i]->ofs);
+				}
+			}	 
+			
+			if(expcount)
+			{
+				fprintf(afile,"\n %li exports:\n",expcount);
+				for(i=0;i<expcount;i++)
+				{
+					fprintf(afile,"%s(%i)=%s\n",expdefs[i]->exp_name,expdefs[i]->ordinal,expdefs[i]->int_name);
+				}
+			}
+
+			if(impcount)
+			{
+				fprintf(afile,"\n %li imports:\n",impcount);
+				for(i=0;i<impcount;i++)
+				{
+					fprintf(afile,"%s=%s:%s(%i)\n",impdefs[i]->int_name,impdefs[i]->mod_name,impdefs[i]->flags==0?impdefs[i]->imp_name:"",	  
+						impdefs[i]->flags==0?0:impdefs[i]->ordinal);
+				}
+			}
+			fclose(afile);
 		}
 		return 0;
 }
