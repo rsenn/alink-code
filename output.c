@@ -36,13 +36,20 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
          baseseg=grplist[r->frame]->segnum;
          break;
     case REL_EXTFRAME:
-        switch(externs[r->frame]->flags)
+        switch(externs[r->frame].flags)
         {
         case EXT_MATCHEDPUBLIC:
-            baseseg=publics[externs[r->frame]->pubnum]->segnum;
+	    if(!externs[r->frame].pubdef) 
+	    {
+		printf("Reloc:Unmatched extern %s\n",externs[r->frame].name);
+		errcount++;
+		break;
+	    }
+	    
+            baseseg=externs[r->frame].pubdef->segnum;
             break;
         case EXT_MATCHEDIMPORT:
-            baseseg=impdefs[externs[r->frame]->impnum]->segnum;
+            baseseg=impdefs[externs[r->frame].impnum].segnum;
             break;
         default:
             printf("Reloc:Unmatched external referenced in frame\n");
@@ -63,15 +70,22 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
     switch(r->ttype)
     {
     case REL_EXTDISP:
-        switch(externs[r->target]->flags)
+        switch(externs[r->target].flags)
         {
         case EXT_MATCHEDPUBLIC:
-            targseg=publics[externs[r->target]->pubnum]->segnum;
-            targofs=publics[externs[r->target]->pubnum]->ofs;
+	    if(!externs[r->target].pubdef) 
+	    {
+		printf("Reloc:Unmatched extern %s\n",externs[r->frame].name);
+		errcount++;
+		break;
+	    }
+	    
+            targseg=externs[r->target].pubdef->segnum;
+            targofs=externs[r->target].pubdef->ofs;
             break;
         case EXT_MATCHEDIMPORT:
-            targseg=impdefs[externs[r->target]->impnum]->segnum;
-            targofs=impdefs[externs[r->target]->impnum]->ofs;
+            targseg=impdefs[externs[r->target].impnum].segnum;
+            targofs=impdefs[externs[r->target].impnum].ofs;
             break;
         default:
             printf("Reloc:Unmatched external referenced in frame\n");
@@ -81,15 +95,22 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
          targofs+=r->disp;
          break;
     case REL_EXTONLY:
-        switch(externs[r->target]->flags)
+        switch(externs[r->target].flags)
         {
         case EXT_MATCHEDPUBLIC:
-            targseg=publics[externs[r->target]->pubnum]->segnum;
-            targofs=publics[externs[r->target]->pubnum]->ofs;
+	    if(!externs[r->target].pubdef) 
+	    {
+		printf("Reloc:Unmatched extern %s\n",externs[r->target].name);
+		errcount++;
+		break;
+	    }
+	    
+            targseg=externs[r->target].pubdef->segnum;
+            targofs=externs[r->target].pubdef->ofs;
             break;
         case EXT_MATCHEDIMPORT:
-            targseg=impdefs[externs[r->target]->impnum]->segnum;
-            targofs=impdefs[externs[r->target]->impnum]->ofs;
+            targseg=impdefs[externs[r->target].impnum].segnum;
+            targofs=impdefs[externs[r->target].impnum].ofs;
             break;
         default:
             printf("Reloc:Unmatched external referenced in frame\n");
@@ -124,10 +145,14 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
     }
     if((!errcount) && (!seglist[targseg]))
     {
+	printf("Reloc: no target segment\n");
+	
         errcount++;
     }
     if((!errcount) && (!seglist[baseseg]))
     {
+	printf("reloc: no base segment\n");
+	
         errcount++;
     }
 
@@ -157,6 +182,8 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
         }
         if(!isFlat || ((seglist[baseseg]->attr&SEG_ALIGN)==SEG_ABS))
         {
+	    printf("not flat, or absolute segment %i:%s\n",baseseg,namelist[seglist[baseseg]->nameindex]);
+	    
             if(seglist[baseseg]->base>(seglist[targseg]->base+targofs))
             {
                 printf("Error: target address out of frame\n");
@@ -176,6 +203,7 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
     }
     else
     {
+	printf("relocation error occurred\n");
         *bseg=0;
         *tofs=0;
     }
@@ -244,6 +272,7 @@ void OutputCOMfile(PCHAR outname)
                     temps=seglist[relocs[i]->segnum]->data[j];
                     temps+=seglist[relocs[i]->segnum]->data[j+1]<<8;
                     temps+=targofs;
+		    temps+=seglist[targseg]->base&0xf; /* non-para seg */
                     seglist[relocs[i]->segnum]->data[j]=temps&0xff;
                     seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
                     j+=2;
@@ -255,6 +284,7 @@ void OutputCOMfile(PCHAR outname)
                     templ+=seglist[relocs[i]->segnum]->data[j+2]<<16;
                     templ+=seglist[relocs[i]->segnum]->data[j+3]<<24;
                     templ+=targofs;
+		    templ+=seglist[targseg]->base&0xf; /* non-para seg */
                     seglist[relocs[i]->segnum]->data[j]=templ&0xff;
                     seglist[relocs[i]->segnum]->data[j+1]=(templ>>8)&0xff;
                     seglist[relocs[i]->segnum]->data[j+2]=(templ>>16)&0xff;
@@ -275,6 +305,7 @@ void OutputCOMfile(PCHAR outname)
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]<<16;
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+3]<<24;
             templ+=targofs;
+	    templ+=seglist[targseg]->base&0xf; /* non-para seg */
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=templ&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(templ>>8)&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]=(templ>>16)&0xff;
@@ -290,14 +321,17 @@ void OutputCOMfile(PCHAR outname)
             temps=seglist[relocs[i]->segnum]->data[relocs[i]->ofs];
             temps+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]<<8;
             temps+=targofs;
+	    temps+=seglist[targseg]->base&0xf; /* non-para seg */
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=temps&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(temps>>8)&0xff;
              break;
         case FIX_LBYTE:
              seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=targofs&0xff;
+	     seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=seglist[targseg]->base&0xf; /* non-para seg */
              break;
         case FIX_HBYTE:
-             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=(targofs>>8)&0xff;
+	    templ=targofs+(seglist[targseg]->base&0xf); /* non-para seg */
+             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=(templ>>8)&0xff;
              break;
         case FIX_SELF_LBYTE:
             if((seglist[targseg]->attr&SEG_ALIGN)==SEG_ABS)
@@ -463,11 +497,7 @@ void OutputEXEfile(PCHAR outname)
 
     errcount=0;
     gotstack=0;
-    headbuf=malloc(0x40+4*fixcount);
-    if(!headbuf)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    headbuf=checkMalloc(0x40+4*fixcount);
     relcount=0;
 
     for(i=0;i<0x40;i++)
@@ -491,9 +521,9 @@ void OutputEXEfile(PCHAR outname)
         }
 
         i=seglist[startaddr.segnum]->base;
-        j=i&0xf;
+        startaddr.ofs+=i&0xf;
         i>>=4;
-        if((startaddr.ofs>65535)||(i>65535)||(j!=0)||((seglist[startaddr.segnum]->attr&SEG_ALIGN)==SEG_ABS))
+        if((startaddr.ofs>65535)||(i>65535)||((seglist[startaddr.segnum]->attr&SEG_ALIGN)==SEG_ABS))
         {
             printf("Invalid start address\n");
             errcount++;
@@ -572,6 +602,7 @@ void OutputEXEfile(PCHAR outname)
                 temps=seglist[relocs[i]->segnum]->data[j];
                 temps+=seglist[relocs[i]->segnum]->data[j+1]<<8;
                 temps+=targofs;
+		temps+=seglist[targseg]->base&0xf; /* non-para seg */
                 seglist[relocs[i]->segnum]->data[j]=temps&0xff;
                 seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
                 j+=2;
@@ -583,6 +614,7 @@ void OutputEXEfile(PCHAR outname)
                 templ+=seglist[relocs[i]->segnum]->data[j+2]<<16;
                 templ+=seglist[relocs[i]->segnum]->data[j+3]<<24;
                 templ+=targofs;
+		templ+=seglist[targseg]->base&0xf; /* non-para seg */
                 seglist[relocs[i]->segnum]->data[j]=templ&0xff;
                 seglist[relocs[i]->segnum]->data[j+1]=(templ>>8)&0xff;
                 seglist[relocs[i]->segnum]->data[j+2]=(templ>>16)&0xff;
@@ -625,6 +657,7 @@ void OutputEXEfile(PCHAR outname)
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]<<16;
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+3]<<24;
             templ+=targofs;
+	    templ+=seglist[targseg]->base&0xf; /* non-para seg */
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=templ&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(templ>>8)&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]=(templ>>16)&0xff;
@@ -640,14 +673,17 @@ void OutputEXEfile(PCHAR outname)
             temps=seglist[relocs[i]->segnum]->data[relocs[i]->ofs];
             temps+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]<<8;
             temps+=targofs;
+	    temps+=seglist[targseg]->base&0xf; /* non-para seg */
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=temps&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(temps>>8)&0xff;
              break;
         case FIX_LBYTE:
              seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=targofs&0xff;
+	     seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=seglist[targseg]->base&0xf; /* non-para seg */
              break;
         case FIX_HBYTE:
-             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=(targofs>>8)&0xff;
+	    templ=targofs+(seglist[targseg]->base&0xf); /* non-para seg */
+             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=(templ>>8)&0xff;
              break;
         case FIX_SELF_LBYTE:
             if((seglist[targseg]->attr&SEG_ALIGN)==SEG_ABS)
@@ -843,20 +879,13 @@ long createOutputSection(char *name,UINT winFlags)
 {
     UINT j;
 
-    outlist=(PPSEG)realloc(outlist,sizeof(PSEG)*(outcount+1));
-    if(!outlist)
-    {
-        ReportError(ERR_NO_MEM);
-    }
-    outlist[outcount]=(PSEG)malloc(sizeof(SEG));
-    if(!outlist[outcount]) ReportError(ERR_NO_MEM);
-    seglist=(PPSEG)realloc(seglist,sizeof(PSEG)*(segcount+1));
-    if(!seglist)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    outlist=(PPSEG)checkRealloc(outlist,sizeof(PSEG)*(outcount+1));
+    outlist[outcount]=(PSEG)checkMalloc(sizeof(SEG));
+    seglist=(PPSEG)checkRealloc(seglist,sizeof(PSEG)*(segcount+1));
+    seglist=(PPSEG)checkRealloc(seglist,(segcount+1)*sizeof(PSEG));
     seglist[segcount]=outlist[outcount];
-    namelist[namecount]=strdup(name);
+    namelist=(PPCHAR)checkRealloc(namelist,(namecount+1)*sizeof(PCHAR));
+    namelist[namecount]=checkStrdup(name);
     outlist[outcount]->nameindex=namecount;
     outlist[outcount]->classindex=-1;
     outlist[outcount]->overlayindex=-1;
@@ -869,7 +898,7 @@ long createOutputSection(char *name,UINT winFlags)
     outlist[outcount]->data=outlist[outcount]->datmask=NULL;
     outlist[outcount]->absofs=segcount;
     outlist[outcount]->attr=SEG_BYTE | SEG_PRIVATE;
-    outlist[outcount]->winFlags=winFlags;
+    outlist[outcount]->winFlags=winFlags ^ WINF_NEG_FLAGS;
     segcount++;
     outcount++;
     return outcount-1;
@@ -890,34 +919,26 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
     if(impsectNum<0) return;
     for(i=0;i<extcount;i++)
     {
-        if(externs[i]->flags!=EXT_MATCHEDIMPORT) continue;
+        if(externs[i].flags!=EXT_MATCHEDIMPORT) continue;
         for(j=0;j<reqcount;j++)
         {
-            if(reqimps[j]==externs[i]->impnum) break;
+            if(reqimps[j]==externs[i].impnum) break;
         }
         if(j!=reqcount) continue;
-        reqimps=(UINT*)realloc(reqimps,(reqcount+1)*sizeof(UINT));
-        if(!reqimps)
-        {
-            ReportError(ERR_NO_MEM);
-        }
-        reqimps[reqcount]=externs[i]->impnum;
+        reqimps=(UINT*)checkRealloc(reqimps,(reqcount+1)*sizeof(UINT));
+        reqimps[reqcount]=externs[i].impnum;
         reqcount++;
         for(j=0;j<dllCount;j++)
         {
-            if(!strcmp(impdefs[externs[i]->impnum]->mod_name,dllNames[j])) break;
+            if(!strcmp(impdefs[externs[i].impnum].mod_name,dllNames[j])) break;
         }
         if(j==dllCount)
         {
-            dllNames=(char**)realloc(dllNames,(dllCount+1)*sizeof(char*));
-            dllNumImps=(int*)realloc(dllNumImps,(dllCount+1)*sizeof(int));
-                        dllImpsDone=(int*)realloc(dllImpsDone,(dllCount+1)*sizeof(int));
-            dllImpNameSize=(int*)realloc(dllImpNameSize,(dllCount+1)*sizeof(int));
-            if(!dllNames || !dllNumImps || !dllImpNameSize || !dllImpsDone)
-            {
-                ReportError(ERR_NO_MEM);
-            }
-            dllNames[dllCount]=impdefs[externs[i]->impnum]->mod_name;
+            dllNames=(char**)checkRealloc(dllNames,(dllCount+1)*sizeof(char*));
+            dllNumImps=(int*)checkRealloc(dllNumImps,(dllCount+1)*sizeof(int));
+	    dllImpsDone=(int*)checkRealloc(dllImpsDone,(dllCount+1)*sizeof(int));
+            dllImpNameSize=(int*)checkRealloc(dllImpNameSize,(dllCount+1)*sizeof(int));
+            dllNames[dllCount]=impdefs[externs[i].impnum].mod_name;
             dllNumImps[dllCount]=0;
             dllImpsDone[dllCount]=0;
             dllImpNameSize[dllCount]=0;
@@ -926,9 +947,9 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
             dllCount++;
         }
         dllNumImps[j]++;
-        if(impdefs[externs[i]->impnum]->flags==0) /* import by name? */
+        if(impdefs[externs[i].impnum].flags==0) /* import by name? */
         {
-            dllImpNameSize[j]+=strlen(impdefs[externs[i]->impnum]->imp_name)+3;
+            dllImpNameSize[j]+=strlen(impdefs[externs[i].impnum].imp_name)+3;
             /* the +3 ensure room for 2-byte hint and null terminator */
             if(dllImpNameSize[j]&1) dllImpNameSize[j]++;
         }
@@ -995,16 +1016,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 
     impsect->length+=i;
 
-    impsect->data=(PUCHAR)malloc(impsect->length);
-    if(!impsect->data)
-    {
-        ReportError(ERR_NO_MEM);
-    }
-    impsect->datmask=(PUCHAR)malloc((impsect->length+7)/8);
-    if(!impsect->datmask)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    impsect->data=(PUCHAR)checkMalloc(impsect->length);
+    impsect->datmask=(PUCHAR)checkMalloc((impsect->length+7)/8);
     for(i=0;i<(impsect->length+7)/8;i++)
     {
         impsect->datmask[i]=0xff;
@@ -1048,8 +1061,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
         /* add imported names to table */
         for(k=0;k<reqcount;k++)
         {
-            if(strcmp(impdefs[reqimps[k]]->mod_name,dllNames[i])!=0) continue;
-            if(impdefs[reqimps[k]]->flags==0)
+            if(strcmp(impdefs[reqimps[k]].mod_name,dllNames[i])!=0) continue;
+            if(impdefs[reqimps[k]].flags==0)
             {
                 /* store pointers to name entry in thunk tables */
                 impsect->data[thunkPos-impsect->base]=(impNamePos-imageBase)&0xff;
@@ -1068,8 +1081,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
                 impNamePos+=2;
                 /* store name */
                 strcpy(impsect->data+impNamePos-impsect->base,
-                    impdefs[reqimps[k]]->imp_name);
-                impNamePos+=strlen(impdefs[reqimps[k]]->imp_name)+1;
+                    impdefs[reqimps[k]].imp_name);
+                impNamePos+=strlen(impdefs[reqimps[k]].imp_name)+1;
                 if(impNamePos&1)
                 {
                     impsect->data[impNamePos-impsect->base]=0;
@@ -1079,7 +1092,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
             else
             {
                 /* store ordinal number in thunk tables */
-                j=impdefs[reqimps[k]]->ordinal+PE_ORDINAL_FLAG;
+                j=impdefs[reqimps[k]].ordinal+PE_ORDINAL_FLAG;
                 impsect->data[thunkPos-impsect->base]=(j)&0xff;
                 impsect->data[thunkPos-impsect->base+1]=(j>>8)&0xff;
                 impsect->data[thunkPos-impsect->base+2]=(j>>16)&0xff;
@@ -1090,8 +1103,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
                 impsect->data[thunk2Pos-impsect->base+2]=(j>>16)&0xff;
                 impsect->data[thunk2Pos-impsect->base+3]=(j>>24)&0xff;
             }
-            impdefs[reqimps[k]]->segnum=impsect->absofs;
-            impdefs[reqimps[k]]->ofs=thunk2Pos-impsect->base;
+            impdefs[reqimps[k]].segnum=impsect->absofs;
+            impdefs[reqimps[k]].ofs=thunk2Pos-impsect->base;
             thunkPos+=4;
             thunk2Pos+=4;
         }
@@ -1104,7 +1117,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
         impsect->data[thunk2Pos-impsect->base+1]=0;
         impsect->data[thunk2Pos-impsect->base+2]=0;
         impsect->data[thunk2Pos-impsect->base+3]=0;
-        thunkPos=thunk2Pos;
+        thunkPos=thunk2Pos+4;
     }
     /* zero out the final entry to mark the end of the table */
     j=i*PE_IMPORTDIRENTRY_SIZE;
@@ -1156,6 +1169,10 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
              if(targseg<0)
              {
                 printf("Reloc %li:Segment selector relocations are not supported in PE files\n",i);
+		printf("rtype=%02X, frame=%04X, target=%04X, ftype=%02X, ttype=%02X\n",
+		       relocs[i]->rtype,relocs[i]->frame,relocs[i]->target,relocs[i]->ftype,
+		       relocs[i]->ttype);
+		
                 errcount++;
              }
              else
@@ -1202,6 +1219,17 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]<<16;
             templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+3]<<24;
             templ+=targofs;
+            seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=templ&0xff;
+            seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(templ>>8)&0xff;
+            seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]=(templ>>16)&0xff;
+            seglist[relocs[i]->segnum]->data[relocs[i]->ofs+3]=(templ>>24)&0xff;
+             break;
+	case FIX_RVA32:
+            templ=seglist[relocs[i]->segnum]->data[relocs[i]->ofs];
+            templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]<<8;
+            templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]<<16;
+            templ+=seglist[relocs[i]->segnum]->data[relocs[i]->ofs+3]<<24;
+            templ+=targofs-imageBase;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs]=templ&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+1]=(templ>>8)&0xff;
             seglist[relocs[i]->segnum]->data[relocs[i]->ofs+2]=(templ>>16)&0xff;
@@ -1324,8 +1352,9 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
         case FIX_SELF_OFS32_2:
         case FIX_SELF_OFS16:
         case FIX_SELF_OFS16_2:
-    case FIX_SELF_LBYTE:
-                continue; /* self-relative fixups don't relocate */
+	case FIX_SELF_LBYTE:
+	case FIX_RVA32:
+                continue; /* self-relative fixups and RVA fixups don't relocate */
         default:
                 break;
         }
@@ -1336,8 +1365,7 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
             {
                 relocSect->length+=4-j; /* update length to align block */
                 /* and block memory */
-                relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
-                if(!relocSect->data) ReportError(ERR_NO_MEM);
+                relocSect->data=(PUCHAR)checkRealloc(relocSect->data,relocSect->length);
                 /* update size of current reloc block */
                 k=relocSect->data[curBlockPos+4];
                 k+=relocSect->data[curBlockPos+5]<<8;
@@ -1356,8 +1384,7 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
             curBlockPos=relocSect->length; /* get address in section of current block */
             relocSect->length+=8; /* 8 bytes block header */
             /* increase size of block */
-            relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
-            if(!relocSect->data) ReportError(ERR_NO_MEM);
+            relocSect->data=(PUCHAR)checkRealloc(relocSect->data,relocSect->length);
             /* store reloc base address, and block size */
             curStartPos=relocs[i]->outputPos&0xfffff000; /* start of mem page */
 
@@ -1372,8 +1399,7 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
             relocSect->data[curBlockPos+6]=0;
             relocSect->data[curBlockPos+7]=0;
         }
-        relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length+2);
-        if(!relocSect->data) ReportError(ERR_NO_MEM);
+        relocSect->data=(PUCHAR)checkRealloc(relocSect->data,relocSect->length+2);
 
         j=relocs[i]->outputPos-curStartPos; /* low 12 bits of address */
         switch(relocs[i]->rtype)
@@ -1410,21 +1436,13 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
     {
     /* 12 bytes for dummy section */
         relocSect->length=12;
-    relocSect->data=(PUCHAR)malloc(12);
-    if(!relocSect->data)
-        {
-            ReportError(ERR_NO_MEM);
-        }
+    relocSect->data=(PUCHAR)checkMalloc(12);
     /* zero it out for now */
         for(i=0;i<12;i++) relocSect->data[i]=0;
     relocSect->data[4]=12; /* size of block */
     }
 
-    relocSect->datmask=(PUCHAR)malloc((relocSect->length+7)/8);
-    if(!relocSect->datmask)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    relocSect->datmask=(PUCHAR)checkMalloc((relocSect->length+7)/8);
     for(i=0;i<(relocSect->length+7)/8;i++)
     {
         relocSect->datmask[i]=0xff;
@@ -1530,18 +1548,18 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
     for(i=0;i<expcount;i++)
     {
         /* check we've got an exported name */
-        if(expdefs[i]->exp_name && strlen(expdefs[i]->exp_name))
+        if(expdefs[i].exp_name && strlen(expdefs[i].exp_name))
         {
             /* four bytes for name pointer */
             /* two bytes for ordinal, 1 for null terminator */
-            expSect->length+=strlen(expdefs[i]->exp_name)+7;
+            expSect->length+=strlen(expdefs[i].exp_name)+7;
             numNames++;
         }
 
-        if(expdefs[i]->flags&EXP_ORD) /* ordinal? */
+        if(expdefs[i].flags&EXP_ORD) /* ordinal? */
         {
-            if(expdefs[i]->ordinal<minOrd) minOrd=expdefs[i]->ordinal;
-            if(expdefs[i]->ordinal>maxOrd) maxOrd=expdefs[i]->ordinal;
+            if(expdefs[i].ordinal<minOrd) minOrd=expdefs[i].ordinal;
+            if(expdefs[i].ordinal>maxOrd) maxOrd=expdefs[i].ordinal;
         }
     }
 
@@ -1560,8 +1578,7 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
         minOrd=1; /* if none defined, min is set to 1 */
     }
 
-    expSect->data=(PUCHAR)malloc(expSect->length);
-    if(!expSect->data) ReportError(ERR_NO_MEM);
+    expSect->data=(PUCHAR)checkMalloc(expSect->length);
 
     objectTable+=PE_OBJECTENTRY_SIZE*SectNum; /* point to reloc object entry */
     k=expSect->length;
@@ -1670,34 +1687,34 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
     /* process numbered exports */
     for(i=0;i<expcount;i++)
     {
-        if(expdefs[i]->flags&EXP_ORD)
+        if(expdefs[i].flags&EXP_ORD)
         {
             /* get current RVA */
-            k=expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)];
-            k+=expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+1]<<8;
-            k+=expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+2]<<16;
-            k+=expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+3]<<24;
+            k=expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)];
+            k+=expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+1]<<8;
+            k+=expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+2]<<16;
+            k+=expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+3]<<24;
             if(k) /* error if already used */
             {
-                printf("Duplicate export ordinal %i\n",expdefs[i]->ordinal);
+                printf("Duplicate export ordinal %i\n",expdefs[i].ordinal);
                 exit(1);
             }
             /* get RVA of export entry */
-            k=publics[expdefs[i]->pubnum]->ofs+
-                seglist[publics[expdefs[i]->pubnum]->segnum]->base-
+            k=expdefs[i].pubdef->ofs+
+                seglist[expdefs[i].pubdef->segnum]->base-
                 imageBase;
             /* store it */
-            expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)]=k&0xff;
-            expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+1]=(k>>8)&0xff;
-            expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+2]=(k>>16)&0xff;
-            expSect->data[RVAStart+4*(expdefs[i]->ordinal-minOrd)+3]=(k>>24)&0xff;
+            expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)]=k&0xff;
+            expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+1]=(k>>8)&0xff;
+            expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+2]=(k>>16)&0xff;
+            expSect->data[RVAStart+4*(expdefs[i].ordinal-minOrd)+3]=(k>>24)&0xff;
         }
     }
 
     /* process non-numbered exports */
     for(i=0,j=RVAStart;i<expcount;i++)
     {
-        if(!(expdefs[i]->flags&EXP_ORD))
+        if(!(expdefs[i].flags&EXP_ORD))
         {
             do
             {
@@ -1709,30 +1726,29 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
             }
             while(k); /* move through table until we find a free spot */
             /* get RVA of export entry */
-            k=publics[expdefs[i]->pubnum]->ofs;
-            k+=seglist[publics[expdefs[i]->pubnum]->segnum]->base;
+            k=expdefs[i].pubdef->ofs;
+            k+=seglist[expdefs[i].pubdef->segnum]->base;
             k-=imageBase;
             /* store RVA */
             expSect->data[j]=k&0xff;
             expSect->data[j+1]=(k>>8)&0xff;
             expSect->data[j+2]=(k>>16)&0xff;
             expSect->data[j+3]=(k>>24)&0xff;
-            expdefs[i]->ordinal=(j-RVAStart)/4+minOrd; /* store ordinal */
+            expdefs[i].ordinal=(j-RVAStart)/4+minOrd; /* store ordinal */
             j+=4;
         }
     }
 
     if(numNames) /* sort name table if present */
     {
-        nameList=(PPEXPREC)malloc(numNames*sizeof(PEXPREC));
-        if(!nameList) ReportError(ERR_NO_MEM);
+        nameList=(PPEXPREC)checkMalloc(numNames*sizeof(PEXPREC));
         j=0; /* no entries yet */
         for(i=0;i<expcount;i++)
         {
-            if(expdefs[i]->exp_name && expdefs[i]->exp_name[0])
+            if(expdefs[i].exp_name && expdefs[i].exp_name[0])
             {
                 /* make entry in name list */
-                nameList[j]=expdefs[i];
+                nameList[j]=&expdefs[i];
                 j++;
             }
         }
@@ -1792,11 +1808,7 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
         expSect->data[15]=((nameSpaceStart+expSect->base-imageBase)>>24)&0xff;
     }
 
-    expSect->datmask=(PUCHAR)malloc((expSect->length+7)/8);
-    if(!expSect->datmask)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    expSect->datmask=(PUCHAR)checkMalloc((expSect->length+7)/8);
     for(i=0;i<(expSect->length+7)/8;i++)
     {
         expSect->datmask[i]=0xff;
@@ -2026,11 +2038,9 @@ void BuildPEResources(long sectNum,PUCHAR objectTable)
 
     ressect->length=dataPos+dataSize;
 
-    ressect->data=(PUCHAR)malloc(ressect->length);
-    if(!ressect->data) ReportError(ERR_NO_MEM);
+    ressect->data=(PUCHAR)checkMalloc(ressect->length);
 
-    ressect->datmask=(PUCHAR)malloc((ressect->length+7)/8);
-    if(!ressect->datmask) ReportError(ERR_NO_MEM);
+    ressect->datmask=(PUCHAR)checkMalloc((ressect->length+7)/8);
 
     /* empty section to start with */
     for(i=0;i<ressect->length;i++)
@@ -2295,8 +2305,7 @@ void getStub(PUCHAR *pstubData,UINT *pstubSize)
         printf("reloc=%i\n",relocSize);
 
         /* allocate buffer for load image */
-        buf=(PUCHAR)malloc(imageSize+0x40+((relocSize+0xf)&0xfffffff0));
-        if(!buf) ReportError(ERR_NO_MEM);
+        buf=(PUCHAR)checkMalloc(imageSize+0x40+((relocSize+0xf)&0xfffffff0));
         /* copy header */
         for(i=0;i<0x1c;i++) buf[i]=headbuf[i];
 
@@ -2422,11 +2431,7 @@ void OutputWin32file(PCHAR outname)
     headerSize&=(0xffffffff-(fileAlign-1));
 
 
-    headbuf=malloc(headerSize);
-    if(!headbuf)
-    {
-        ReportError(ERR_NO_MEM);
-    }
+    headbuf=checkMalloc(headerSize);
 
     for(i=0;i<headerSize;i++)
     {
@@ -2567,7 +2572,7 @@ void OutputWin32file(PCHAR outname)
         headbuf[j+14]=((outlist[i]->base-imageBase)>>16)&0xff;
         headbuf[j+15]=((outlist[i]->base-imageBase)>>24)&0xff;
 
-        k=outlist[i]->winFlags; /* get characteristice for section */
+        k=(outlist[i]->winFlags ^ WINF_NEG_FLAGS) & WINF_IMAGE_FLAGS; /* get characteristice for section */
         headbuf[j+36]=(k)&0xff; /* store characteristics */
         headbuf[j+37]=(k>>8)&0xff;
         headbuf[j+38]=(k>>16)&0xff;
