@@ -3,6 +3,7 @@
 #include <memory.h>
 #include <string.h>
 #include <limits.h>
+#include <ctype.h>
 
 #define TRUE  (1==1)
 #define FALSE (1==0)
@@ -403,6 +404,11 @@ char GetNbit(PUCHAR mask,long i);
 int stricmp(const char *s1,const char*s2);
 char *strupr(char *s);
 int getBitCount(UINT a);
+void matchExterns(void);
+void combineBlocks(void);
+void sortSegments(void);
+void loadFiles(void);
+void generateMap(void);
 
 
 extern char case_sensitive;

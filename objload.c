@@ -239,7 +239,7 @@ void LoadFIXUP(PRELOC r,PUCHAR buf,long *p)
 		}
 		else
 		{
-			r->ttype=(t_thred[thrednum]>>2)&7 | 4; /* no disp */
+                        r->ttype=((t_thred[thrednum]>>2)&7) | 4; /* no disp */
 		}
 		r->target=t_thredindex[thrednum];
 		r->target=GetIndex(buf,&j);

@@ -900,7 +900,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 		{
 			dllNames=(char**)realloc(dllNames,(dllCount+1)*sizeof(char*));
 			dllNumImps=(int*)realloc(dllNumImps,(dllCount+1)*sizeof(int));
-			dllImpsDone=(int*)realloc(dllNumImps,(dllCount+1)*sizeof(int));
+                        dllImpsDone=(int*)realloc(dllImpsDone,(dllCount+1)*sizeof(int));
 			dllImpNameSize=(int*)realloc(dllImpNameSize,(dllCount+1)*sizeof(int));
 			if(!dllNames || !dllNumImps || !dllImpNameSize || !dllImpsDone)
 			{
@@ -1113,7 +1113,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 	return;
 }
 
-BuildPERelocs(long relocSectNum,PUCHAR objectTable)
+void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 {
 	int i,j;
 	PRELOC r;
@@ -1429,8 +1429,8 @@ BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 
 void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
 {
-	long i;
-	UINT j,k;
+        long i,j;
+        UINT k;
 	PSEG expSect;
 	UINT namelen;
 	UINT numNames=0;
@@ -1749,16 +1749,12 @@ void OutputWin32file(PCHAR outname)
 	UINT started;
 	UINT lastout;
 	PUCHAR headbuf;
-	PUCHAR relocsect;
 	PUCHAR stubData;
 	FILE*outfile;
-	long relcount;
-	int gotstack;
-	UINT totlength;
 	UINT headerSize;
 	UINT headerVirtSize;
 	UINT stubSize;
-	UINT nameIndex;
+        long nameIndex;
 	UINT sectionStart;
 	UINT headerStart;
 	long relocSectNum,importSectNum,exportSectNum;

@@ -39,7 +39,7 @@ int stricmp(const char *s1,const char*s2)
 char *strupr(char *s)
 {
         int i;
-        for(i=0;s[i]=toupper(s[i]);i++);
+        for(i=0;(s[i]=toupper(s[i]));i++);
         return s;
 }
 

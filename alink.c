@@ -751,6 +751,8 @@ void combineBlocks()
 void sortSegments()
 {
 	long i,j,k;
+        UINT base,align;
+
 	for(i=0;i<segcount;i++)
 	{
 		if(seglist[i])
@@ -763,6 +765,7 @@ void sortSegments()
 	}
 
 	outcount=0;
+        base=0;
 	outlist=malloc(sizeof(PSEG)*segcount);
 	if(!outlist)
 	{
@@ -782,24 +785,51 @@ void sortSegments()
 					exit(1);
 				}
 				/* add non-absolute segment of non-zero length */
-				if(((seglist[k]->attr&SEG_ALIGN)!=SEG_ABS) &&
-					(seglist[k]->length>0))
-				{
-					if(seglist[k]->absframe!=0)
-					{
-						printf("Error - Segment %s part of more than one group\n",namelist[seglist[k]->nameindex]);
-						exit(1);
-					}
-					seglist[k]->absframe=1;
-					seglist[k]->absofs=i+1;
-					if(grplist[i]->segnum<0)
-					{
-						grplist[i]->segnum=k;
-					}
-					if(outcount==0) baseSeg=k;
-					outlist[outcount]=seglist[k];
-					outcount++;
-				}
+                                if((seglist[k]->attr&SEG_ALIGN)!=SEG_ABS)
+                                {
+                                        switch(seglist[k]->attr&SEG_ALIGN)
+                                        {
+                                        case SEG_WORD:
+                                        case SEG_BYTE:
+                                        case SEG_DWORD:
+                                        case SEG_PARA:
+                                                align=0x10;
+                                                break;
+                                        case SEG_PAGE:
+                                                align=0x100;
+                                                break;
+                                        case SEG_MEMPAGE:
+                                                align=0x1000;
+                                                break;
+                                        default:
+                                                align=1;
+                                                break;
+                                        }
+                                        if(align<objectAlign)
+                                        {
+                                                align=objectAlign;
+                                        }
+                                        base=(base+align-1)&(0xffffffff-(align-1));
+                                        seglist[k]->base=base;
+                                        base+=seglist[k]->length;
+                                        if(seglist[k]->length>0)
+                                        {
+                                                if(seglist[k]->absframe!=0)
+                                                {
+                                                        printf("Error - Segment %s part of more than one group\n",namelist[seglist[k]->nameindex]);
+                                                        exit(1);
+                                                }
+                                                seglist[k]->absframe=1;
+                                                seglist[k]->absofs=i+1;
+                                                if(grplist[i]->segnum<0)
+                                                {
+                                                        grplist[i]->segnum=k;
+                                                }
+                                                if(outcount==0) baseSeg=k;
+                                                outlist[outcount]=seglist[k];
+                                                outcount++;
+                                        }
+                                }
 			}
 		}
 	}
@@ -808,11 +838,36 @@ void sortSegments()
 		if(seglist[i])
 		{
 			/* add non-absolute segment of non-zero length */
-			if(((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS) &&
-				(seglist[i]->length>0))
-			{
-				if(!seglist[i]->absframe)
-				{
+                        if(((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS) &&
+                                !seglist[i]->absframe)
+                        {
+                                switch(seglist[i]->attr&SEG_ALIGN)
+                                {
+                                case SEG_WORD:
+                                case SEG_BYTE:
+                                case SEG_DWORD:
+                                case SEG_PARA:
+                                        align=0x10;
+                                        break;
+                                case SEG_PAGE:
+                                        align=0x100;
+                                        break;
+                                case SEG_MEMPAGE:
+                                        align=0x1000;
+                                        break;
+                                default:
+                                        align=1;
+                                        break;
+                                }
+                                if(align<objectAlign)
+                                {
+                                        align=objectAlign;
+                                }
+                                base=(base+align-1)&(0xffffffff-(align-1));
+                                seglist[i]->base=base;
+                                base+=seglist[i]->length;
+                                if(seglist[i]->length>0)
+                                {
 					seglist[i]->absframe=1;
 					seglist[i]->absofs=0;
 					if(outcount==0) baseSeg=i;
@@ -827,39 +882,6 @@ void sortSegments()
 		}
 	}
 }                
-
-void alignSegments()
-{
-	long i,j,k;
-	j=0;
-	for(i=0;i<outcount;i++)
-	{
-		if(outlist[i])
-		{
-			switch(outlist[i]->attr&SEG_ALIGN)
-			{
-			case SEG_WORD:
-			case SEG_BYTE:
-			case SEG_DWORD:
-			case SEG_PARA:
-				k=0x10;
-				break;
-			case SEG_PAGE:
-				k=0x100;
-				break;
-			case SEG_MEMPAGE:
-				k=0x1000;
-				break;
-			default:
-				break;
-			}
-			if(k<objectAlign) k=objectAlign;
-			j=(j+k-1)&(0xffffffff-(k-1));
-			outlist[i]->base=j;
-			j+=outlist[i]->length;
-		}
-	}
-}
 
 void loadFiles()
 {
@@ -1012,7 +1034,7 @@ int main(int argc,char *argv[])
 {
 	long i;
 
-	printf("ALINK v1.0 (C) Copyright 1998 Anthony A.J. Williams.\n");
+        printf("ALINK v1.01 (C) Copyright 1998 Anthony A.J. Williams.\n");
 	printf("All Rights Reserved\n\n");
 
 	processArgs(argc,argv);
@@ -1173,8 +1195,6 @@ int main(int argc,char *argv[])
 	combineBlocks();
 
 	sortSegments();
-
-	alignSegments();
 
 	switch(output_type)
 	{
