@@ -1,6 +1,76 @@
 #include "alink.h"
 
-void loadCoffLib(FILE *libfile,PCHAR libname)
+static BOOL COFFLibModLoad(PFILE f,PMODULE libmod,BOOL isDjgpp);
+static BOOL DJGPPLibModLoad(PFILE f,PMODULE libmod);
+static BOOL MSCOFFLibModLoad(PFILE f,PMODULE libmod);
+static BOOL COFFLibLoad(PFILE libfile,PMODULE mod,BOOL isDjgpp);
+
+BOOL COFFLibDetect(PFILE libfile,PCHAR libname)
+{
+    UCHAR buf[60];
+    UINT memberSize;
+    PCHAR endptr;
+    UINT i;
+
+    if(fread(buf,1,8,libfile)!=8)
+    {
+	return FALSE;
+    }
+    buf[8]=0;
+    /* complain if file header is wrong */
+    if(strcmp(buf,"!<arch>\n"))
+    {
+	return FALSE;
+    }
+    /* read archive member header */
+    if(fread(buf,1,60,libfile)!=60)
+    {
+	return FALSE;
+    }
+    if((buf[58]!=0x60) || (buf[59]!='\n'))
+    {
+	return FALSE;
+    }
+    buf[16]=0;
+    /* check name of first linker member */
+    if(strcmp(buf,"/               ")) /* 15 spaces */
+    {
+	return FALSE;
+    }
+    buf[58]=0;
+
+    /* strip trailing spaces from size */
+    i=57;
+    while((i>48) && isspace(buf[i]))
+    {
+	buf[i]=0;
+	i--;
+    }
+    /* get size */
+    errno=0;
+    memberSize=strtoul(buf+48,&endptr,10);
+    if(errno || (*endptr))
+    {
+	return FALSE;
+    }
+    if((memberSize<4) && memberSize)
+    {
+	return FALSE;
+    }
+    return TRUE;
+}
+
+BOOL MSCOFFLibLoad(PFILE libfile,PMODULE mod)
+{
+    return COFFLibLoad(libfile,mod,FALSE);
+}
+
+BOOL DJGPPLibLoad(PFILE libfile,PMODULE mod)
+{
+    return COFFLibLoad(libfile,mod,TRUE);
+}
+
+static BOOL COFFLibLoad(PFILE libfile,PMODULE mod,BOOL isDjgpp)
 {
     UINT i,j;
     UINT numsyms;
@@ -8,49 +78,45 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
     UINT memberSize;
     UINT startPoint;
     PUCHAR endptr;
-    PLIBFILE p;
     PCHAR name;
     PUCHAR modbuf;
-    PSORTENTRY symlist;
-    int x;
+    PUCHAR longnames;
+    PPSYMBOL symlist;
+    INT x;
+    UCHAR buf[60];
 
-    libfiles=checkRealloc(libfiles,(libcount+1)*sizeof(LIBFILE));
-    p=&libfiles[libcount];
-    p->filename=checkMalloc(strlen(libname)+1);
-    strcpy(p->filename,libname);
     startPoint=ftell(libfile);
     
     if(fread(buf,1,8,libfile)!=8)
     {
-	printf("Error reading from file\n");
-	exit(1);
+	addError("Error reading from file %s",mod->file);
+	return FALSE;
     }
     buf[8]=0;
     /* complain if file header is wrong */
     if(strcmp(buf,"!<arch>\n"))
     {
-	printf("Invalid library file format - bad file header\n");
-	printf("\"%s\"\n",buf);
+	addError("Invalid library file format - bad file header: \"%s\"",buf);
 	
-	exit(1);
+	return FALSE;
     }
     /* read archive member header */
     if(fread(buf,1,60,libfile)!=60)
     {
-	printf("Error reading from file\n");
-	exit(1);
+	addError("Error reading from file %s",mod->file);
+	return FALSE;
     }
     if((buf[58]!=0x60) || (buf[59]!='\n'))
     {
-	printf("Invalid library file format - bad member signature\n");
-	exit(1);
+	addError("Invalid library file format for %s - bad member signature",mod->file);
+	return FALSE;
     }
     buf[16]=0;
     /* check name of first linker member */
     if(strcmp(buf,"/               ")) /* 15 spaces */
     {
-	printf("Invalid library file format - bad member name\n");
-	exit(1);
+	addError("Invalid library file format for %s - bad member name",mod->file);
+	return FALSE;
     }
     buf[58]=0;
 
@@ -67,13 +133,13 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
     memberSize=strtoul(buf+48,(PPCHAR)&endptr,10);
     if(errno || (*endptr))
     {
-	printf("Invalid library file format - bad member size\n");
-	exit(1);
+	addError("Invalid library file format - bad member size\n");
+	return FALSE;
     }
     if((memberSize<4) && memberSize)
     {
-	printf("Invalid library file format - bad member size\n");
-	exit(1);
+	addError("Invalid library file format - bad member size\n");
+	return FALSE;
     }
     if(!memberSize)
     {
@@ -83,22 +149,21 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
     {
 	if(fread(buf,1,4,libfile)!=4)
 	{
-	    printf("Error reading from file\n");
-	    exit(1);
+	    addError("Error reading from file\n");
+	    return FALSE;
 	}
 	numsyms=buf[3]+(buf[2]<<8)+(buf[1]<<16)+(buf[0]<<24);
     }
-    printf("%u symbols\n",numsyms);
     modbuf=(PUCHAR)checkMalloc(numsyms*4);
    
     if(numsyms)
     {
 	if(fread(modbuf,1,4*numsyms,libfile)!=4*numsyms)
 	{
-	    printf("Error reading from file\n");
-	    exit(1);
+	    addError("Error reading from file\n");
+	    return FALSE;
 	}
-	symlist=(PSORTENTRY)checkMalloc(sizeof(SORTENTRY)*numsyms);
+	symlist=(PPSYMBOL)checkMalloc(sizeof(PSYMBOL)*numsyms);
     }
     
     for(i=0;i<numsyms;i++)
@@ -110,8 +175,8 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
 	{
 	    if((x=getc(libfile))==EOF)
 	    {
-		printf("Error reading from file\n");
-		exit(1);
+		addError("Error reading from file\n");
+		return FALSE;
 	    }
 	    if(!x) break;
 	    name=(char*)checkRealloc(name,j+2);
@@ -120,60 +185,40 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
 	}
 	if(!name)
 	{
-	    printf("NULL name for symbol %i\n",i);
-	    exit(1);
-	}
-	if(!case_sensitive)
-	{
-	    strupr(name);
+	    addError("NULL name for symbol %li\n",i);
+	    return FALSE;
 	}
 	
-	symlist[i].id=name;
-	symlist[i].count=modpage;
+	symlist[i]=createSymbol(name,PUB_LIBSYM,mod,modpage,isDjgpp?DJGPPLibModLoad:MSCOFFLibModLoad);
     }
 
-    if(numsyms)
-    {
-	qsort(symlist,numsyms,sizeof(SORTENTRY),sortCompare);
-	p->symbols=symlist;
-	p->numsyms=numsyms;
-
-	free(modbuf);
-    }
-    else
-    {
-	p->symbols=NULL;
-	p->numsyms=0;
-    }
+    checkFree(modbuf);
     
+    if(ftell(libfile)!=(startPoint+68+memberSize))
+    {
+	addError("Invalid first linker member: Pos=%08lX, should be %08lX",ftell(libfile),startPoint+68+memberSize);
+	
+	return FALSE;
+    }
+
     /* move to an even byte boundary in the file */
     if(ftell(libfile)&1)
     {
 	fseek(libfile,1,SEEK_CUR);
     }
 
-    if(ftell(libfile)!=(startPoint+68+memberSize))
-    {
-	printf("Invalid first linker member\n");
-	printf("Pos=%08X, should be %08X\n",ftell(libfile),startPoint+68+memberSize);
-	
-	exit(1);
-    }
-
-    printf("Loaded first linker member\n");
-    
     startPoint=ftell(libfile);
 
     /* read archive member header */
     if(fread(buf,1,60,libfile)!=60)
     {
-	printf("Error reading from file\n");
-	exit(1);
+	addError("Error reading from file\n");
+	return FALSE;
     }
     if((buf[58]!=0x60) || (buf[59]!='\n'))
     {
-	printf("Invalid library file format - bad member signature\n");
-	exit(1);
+	addError("Invalid library file format - bad member signature\n");
+	return FALSE;
     }
     buf[16]=0;
     /* check name of second linker member */
@@ -195,13 +240,13 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
 	memberSize=strtoul(buf+48,(PPCHAR)&endptr,10);
 	if(errno || (*endptr))
 	{
-	    printf("Invalid library file format - bad member size\n");
-	    exit(1);
+	    addError("Invalid library file format - bad member size\n");
+	    return FALSE;
 	}
 	if((memberSize<8) && memberSize)
 	{
-	    printf("Invalid library file format - bad member size\n");
-	    exit(1);
+	    addError("Invalid library file format - bad member size\n");
+	    return FALSE;
 	}
 
 	/* move over second linker member */
@@ -220,18 +265,18 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
     
     
     startPoint=ftell(libfile);
-    p->longnames=NULL;
+    longnames=NULL;
 
     /* read archive member header */
     if(fread(buf,1,60,libfile)!=60)
     {
-	printf("Error reading from file\n");
-	exit(1);
+	addError("Error reading from file\n");
+	return FALSE;
     }
     if((buf[58]!=0x60) || (buf[59]!='\n'))
     {
-	printf("Invalid library file format - bad 3rd member signature\n");
-	exit(1);
+	addError("Invalid library file format - bad 3rd member signature\n");
+	return FALSE;
     }
     buf[16]=0;
     /* check name of long names linker member */
@@ -252,16 +297,16 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
 	memberSize=strtoul(buf+48,(PPCHAR)&endptr,10);
 	if(errno || (*endptr))
 	{
-	    printf("Invalid library file format - bad member size\n");
-	    exit(1);
+	    addError("Invalid library file format - bad member size\n");
+	    return FALSE;
 	}
 	if(memberSize)
 	{
-	    p->longnames=(PUCHAR)checkMalloc(memberSize);
-	    if(fread(p->longnames,1,memberSize,libfile)!=memberSize)
+	    longnames=(PUCHAR)checkMalloc(memberSize);
+	    if(fread(longnames,1,memberSize,libfile)!=memberSize)
 	    {
-		printf("Error reading from file\n");
-		exit(1);
+		addError("Error reading from file\n");
+		return FALSE;
 	    }
 	}
     }
@@ -270,30 +315,45 @@ void loadCoffLib(FILE *libfile,PCHAR libname)
 	/* if no long names member, move back to member header */
 	fseek(libfile,startPoint,SEEK_SET);
     }
-    
 
-    p->modsloaded=0;
-    p->modlist=checkMalloc(sizeof(unsigned short)*numsyms);
-    p->libtype='C';
-    p->blocksize=1;
-    p->flags=LIBF_CASESENSITIVE;
-    libcount++;
+    mod->formatSpecificData=longnames;
+    
+    for(i=0;i<numsyms;++i)
+    {
+	addGlobalSymbol(symlist[i]);
+    }
+
+    checkFree(symlist);
+    return TRUE;
 }
 
-void loadcofflibmod(PLIBFILE p,FILE *libfile)
+static BOOL DJGPPLibModLoad(PFILE libfile,PMODULE libmod)
 {
-    char *name;
+    return COFFLibModLoad(libfile,libmod,TRUE);
+}
+
+static BOOL MSCOFFLibModLoad(PFILE libfile,PMODULE libmod)
+{
+    return COFFLibModLoad(libfile,libmod,FALSE);
+}
+
+static BOOL COFFLibModLoad(PFILE libfile,PMODULE libmod,BOOL isDjgpp)
+{
+    PCHAR name;
     UINT ofs;
+    UCHAR buf[60];
+    PMODULE mod;
+    UINT i;
     
     if(fread(buf,1,60,libfile)!=60)
     {
-	printf("Error reading from file\n");
-	exit(1);
+	addError("Error reading from file\n");
+	return FALSE;
     }
     if((buf[58]!=0x60) || (buf[59]!='\n'))
     {
-	printf("Invalid library member header\n");
-	exit(1);
+	addError("Invalid library member header\n");
+	return FALSE;
     }
     buf[16]=0;
     if(buf[0]=='/')
@@ -308,16 +368,47 @@ void loadcofflibmod(PLIBFILE p,FILE *libfile)
 	ofs=strtoul(buf+1,&name,10);
 	if(!buf[1] || *name)
 	{
-	    printf("Invalid string number \n");
-	    exit(1);
+	    addError("Invalid string number \n");
+	    return FALSE;
 	}
-	name=p->longnames+ofs;
+	name=libmod->formatSpecificData;
+	if(!name)
+	{
+	    addError("Missing long name library member\n");
+	    return FALSE;
+	}
+	name+=ofs;
     }
     else
     {
 	name=buf;
     }
     
-    printf("Loading module %s\n",name);
-    loadcoff(libfile);
+    mod=createModule(libmod->file);
+    mod->name=checkStrdup(name);
+    for(i=0;inputFormats[i].name;++i)
+    {
+	if(isDjgpp)
+	{
+	    if(!strcmp(inputFormats[i].name,"djgpp"))
+	    {
+		mod->fmt=inputFormats+i;
+		break;
+	    }
+	}
+	else
+	{
+	    if(!strcmp(inputFormats[i].name,"mscoff"))
+	    {
+		mod->fmt=inputFormats+i;
+		break;
+	    }
+	}
+    }
+    if(!inputFormats[i].name)
+    {
+	addError("Unable to find format descriptor\n");
+	return FALSE;
+    }
+    return mod->fmt->load(libfile,mod);    
 }

@@ -1,1428 +1,170 @@
 #include "alink.h"
+#include "omf.h"
 
-char case_sensitive=1;
-char padsegments=0;
-char mapfile=0;
-PCHAR mapname=0;
-unsigned short maxalloc=0xffff;
-int output_type=OUTPUT_EXE;
+BOOL case_sensitive=TRUE;
+BOOL padsegments=FALSE;
+static BOOL mapfile=FALSE;
+static PCHAR mapname=NULL;
 PCHAR outname=0;
 
-FILE *afile=0;
-UINT filepos=0;
-long reclength=0;
-unsigned char rectype=0;
-char li_le=0;
-UINT prevofs=0;
-long prevseg=0;
-long gotstart=0;
+BOOL defaultUse32=FALSE;
+
+BOOL gotstart=FALSE;
 RELOC startaddr;
-UINT imageBase=0;
-UINT fileAlign=1;
-UINT objectAlign=1;
-UINT stackSize;
-UINT stackCommitSize;
-UINT heapSize;
-UINT heapCommitSize;
-unsigned char osMajor,osMinor;
-unsigned char subsysMajor,subsysMinor;
-unsigned int subSystem;
-int buildDll=FALSE;
-PUCHAR stubName=NULL;
+UINT frameAlign=1;
+BOOL dosSegOrdering=FALSE;
+BOOL noDefaultLibs=FALSE;
 
-long errcount=0;
+UINT errcount=0;
 
-unsigned char buf[65536];
 PDATABLOCK lidata;
 
-PPCHAR namelist=NULL;
-PPSEG seglist=NULL;
-PPSEG outlist=NULL;
-PPGRP grplist=NULL;
-PSORTENTRY publics=NULL;
-PEXTREC externs=NULL;
-PPCOMREC comdefs=NULL;
-PPRELOC relocs=NULL;
-PIMPREC impdefs=NULL;
-PEXPREC expdefs=NULL;
-PLIBFILE libfiles=NULL;
-PRESOURCE resource=NULL;
-PSORTENTRY comdats=NULL;
-PPCHAR modname;
-PPCHAR filename;
-UINT namecount=0,namemin=0,
-    pubcount=0,pubmin=0,
-    segcount=0,segmin=0,outcount=0,
-    grpcount=0,grpmin=0,
-    extcount=0,extmin=0,
-    comcount=0,commin=0,
-    fixcount=0,fixmin=0,
-    impcount=0,impmin=0,impsreq=0,
-    expcount=0,expmin=0,
-    nummods=0,
-    filecount=0,
-    libcount=0,
-    rescount=0;
+PPMODULE fileNames=NULL;
+UINT fileCount=0;
+
+PPSEG spaceList=NULL;
+UINT spaceCount=0;
+PPSEG globalSegs=NULL;
+UINT globalSegCount=0;
+PPEXTREF globalExterns=NULL;
+UINT globalExternCount=0;
+PPSYMBOL globalSymbols=NULL;
+UINT globalSymbolCount=0;
+PPEXTREF localExterns=NULL;
+UINT localExternCount=0;
+PPSYMBOL localSymbols=NULL;
+UINT localSymbolCount=0;
+
+PPEXPORTREC globalExports=NULL;
+UINT globalExportCount=0;
+
+PRESOURCE globalResources=NULL;
+UINT globalResourceCount=0;
+
+UINT expcount=0,expmin=0;
+
 UINT libPathCount=0;
 PCHAR *libPath=NULL;
 char *entryPoint=NULL;
 
-void processArgs(int argc,char **argv)
-{
-    long i,j;
-    int helpRequested=FALSE;
-    UINT setbase,setfalign,setoalign;
-    UINT setstack,setstackcommit,setheap,setheapcommit;
-    int setsubsysmajor,setsubsysminor,setosmajor,setosminor;
-    unsigned char setsubsys;
-    int gotbase=FALSE,gotfalign=FALSE,gotoalign=FALSE,gotsubsys=FALSE;
-    int gotstack=FALSE,gotstackcommit=FALSE,gotheap=FALSE,gotheapcommit=FALSE;
-    int gotsubsysver=FALSE,gotosver=FALSE;
-    char *p,*q;
-    int c;
-    char **newargs;
-    FILE *argFile;
+UINT moduleCount=0;
+PPMODULE modules=NULL;
 
-    for(i=1;i<argc;i++)
-    {
-	/* cater for response files */
-	if(argv[i][0]=='@')
-	{
-	    argFile=fopen(argv[i]+1,"rt");
-	    if(!argFile)
-	    {
-		printf("Unable to open response file \"%s\"\n",argv[i]+1);
-		exit(1);
-	    }
-	    newargs=(char**)checkMalloc(argc*sizeof(char*));
-	    for(j=0;j<argc;j++)
-	    {
-		newargs[j]=argv[j];
-	    }
-	    p=NULL;
-	    j=0;
-	    while((c=fgetc(argFile))!=EOF)
-	    {
-		if(c==';') /* allow comments, starting with ; */
-		{
-		    while(((c=fgetc(argFile))!=EOF) && (c!='\n')); /* loop until end of line */
-		    /* continue main loop */
-		    continue;
-		}
-		if(isspace(c))
-		{
-		    if(p) /* if we've got an argument, add to list */
-		    {
-			newargs=(char**)checkRealloc(newargs,(argc+1)*sizeof(char*));
-			newargs[argc]=p;
-			argc++;
-			/* clear pointer and length indicator */
-			p=NULL;
-			j=0;
-		    }
-		    /* and continue */
-		    continue;
-		}
-		if(c=='"')
-		{
-		    /* quoted strings */
-		    while(((c=fgetc(argFile))!=EOF) && (c!='"')) /* loop until end of string */
-		    {
-			if(c=='\\')
-			{
-			    c=fgetc(argFile);
-			    if(c==EOF)
-			    {
-				printf("Missing character to escape in quoted string, unexpected end of file found\n");
-				exit(1);
-			    }
-			}
-			    
-			p=(char*)checkRealloc(p,j+2);
-			p[j]=c;
-			j++;
-			p[j]=0;
-		    }
-		    if(c==EOF)
-		    {
-			printf("Unexpected end of file encountered in quoted string\n");
-			exit(1);
-		    }
-		    
-		    /* continue main loop */
-		    continue;
-		}
-		/* if no special case, then add to string */
-		p=(char*)checkRealloc(p,j+2);
-		p[j]=c;
-		j++;
-		p[j]=0;
-	    }
-	    if(p)
-	    {
-		newargs=(char**)checkRealloc(newargs,(argc+1)*sizeof(char*));
-		newargs[argc]=p;
-		argc++;
-	    }
-	    fclose(argFile);
-	    argv=newargs;
-	}
-	else if(argv[i][0]==SWITCHCHAR)
-	{
-	    if(strlen(argv[i])<2)
-	    {
-		printf("Invalid argument \"%s\"\n",argv[i]);
-		exit(1);
-	    }
-	    switch(argv[i][1])
-	    {
-	    case 'c':
-		if(strlen(argv[i])==2)
-		{
-		    case_sensitive=1;
-		    break;
-		}
-		else if(strlen(argv[i])==3)
-		{
-		    if(argv[i][2]=='+')
-		    {
-			case_sensitive=1;
-			break;
-		    }
-		    else if(argv[i][2]=='-')
-		    {
-			case_sensitive=0;
-			break;
-		    }
-		}
-		printf("Invalid switch %s\n",argv[i]);
-		exit(1);
-		break;
-	    case 'p':
-		switch(strlen(argv[i]))
-		{
-		case 2:
-		    padsegments=1;
-		    break;
-		case 3:
-		    if(argv[i][2]=='+')
-		    {
-			padsegments=1;
-			break;
-		    }
-		    else if(argv[i][2]=='-')
-		    {
-			padsegments=0;
-			break;
-		    }
-		default:
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 'm':
-		switch(strlen(argv[i]))
-		{
-		case 2:
-		    mapfile=1;
-		    break;
-		case 3:
-		    if(argv[i][2]=='+')
-		    {
-			mapfile=1;
-			break;
-		    }
-		    else if(argv[i][2]=='-')
-		    {
-			mapfile=0;
-			break;
-		    }
-		default:
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 'o':
-		switch(strlen(argv[i]))
-		{
-		case 2:
-		    if(i<(argc-1))
-		    {
-			i++;
-			if(!outname)
-			{
-			    outname=checkMalloc(strlen(argv[i])+1+4); /* space for added .EXT if none given */
-			    strcpy(outname,argv[i]);
-			}
-			else
-			{
-			    printf("Can't specify two output names\n");
-			    exit(1);
-			}
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		default:
-		    if(!strcmp(argv[i]+2,"EXE"))
-		    {
-			output_type=OUTPUT_EXE;
-			imageBase=0;
-			fileAlign=1;
-			objectAlign=1;
-			stackSize=0;
-			stackCommitSize=0;
-			heapSize=0;
-			heapCommitSize=0;
-		    }
-		    else if(!strcmp(argv[i]+2,"COM"))
-		    {
-			output_type=OUTPUT_COM;
-			imageBase=0;
-			fileAlign=1;
-			objectAlign=1;
-			stackSize=0;
-			stackCommitSize=0;
-			heapSize=0;
-			heapCommitSize=0;
-		    }
-		    else if(!strcmp(argv[i]+2,"PE"))
-		    {
-			output_type=OUTPUT_PE;
-			imageBase=WIN32_DEFAULT_BASE;
-			fileAlign=WIN32_DEFAULT_FILEALIGN;
-			objectAlign=WIN32_DEFAULT_OBJECTALIGN;
-			stackSize=WIN32_DEFAULT_STACKSIZE;
-			stackCommitSize=WIN32_DEFAULT_STACKCOMMITSIZE;
-			heapSize=WIN32_DEFAULT_HEAPSIZE;
-			heapCommitSize=WIN32_DEFAULT_HEAPCOMMITSIZE;
-			subSystem=WIN32_DEFAULT_SUBSYS;
-			subsysMajor=WIN32_DEFAULT_SUBSYSMAJOR;
-			subsysMinor=WIN32_DEFAULT_SUBSYSMINOR;
-			osMajor=WIN32_DEFAULT_OSMAJOR;
-			osMinor=WIN32_DEFAULT_OSMINOR;
-		    }
-		    else if(!strcmp(argv[i]+1,"objectalign"))
-		    {
-			if(i<(argc-1))
-			{
-			    i++;
-			    setoalign=strtoul(argv[i],&p,0);
-			    if(p[0]) /* if not at end of arg */
-			    {
-				printf("Bad object alignment\n");
-				exit(1);
-			    }
-			    if((setoalign<512)|| (setoalign>(256*1048576))
-			       || (getBitCount(setoalign)>1))
-			    {
-				printf("Bad object alignment\n");
-				exit(1);
-			    }
-			    gotoalign=TRUE;
-			}
-			else
-			{
-			    printf("Invalid switch %s\n",argv[i]);
-			    exit(1);
-			}
-		    }
-		    else if(!strcmp(argv[i]+1,"osver"))
-		    {
-			if(i<(argc-1))
-			{
-			    i++;
-			    if(sscanf(argv[i],"%d.%d%n",&setosmajor,&setosminor,&j)!=2)
-			    {
-				printf("Invalid version number %s\n",argv[i]);
-				exit(1);
-			    }
-			    if((j!=strlen(argv[i])) || (setosmajor<0) || (setosminor<0)
-			       || (setosmajor>65535) || (setosminor>65535))
-			    {
-				printf("Invalid version number %s\n",argv[i]);
-				exit(1);
-			    }
-			    gotosver=TRUE;
-			}
-			else
-			{
-			    printf("Invalid switch %s\n",argv[i]);
-			    exit(1);
-			}
-			break;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		break;
-	    case 'L':
-		if(strlen(argv[i])==2)
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			libPathCount++;
-			libPath=(PCHAR*)checkRealloc(libPath,libPathCount*sizeof(PCHAR));
-			j=strlen(argv[i]);
-			if(argv[i][j-1]!=PATH_CHAR)
-			{
-				/* append a path separator if not present */
-			    libPath[libPathCount-1]=(char*)checkMalloc(j+2);
-			    strcpy(libPath[libPathCount-1],argv[i]);
-			    libPath[libPathCount-1][j]=PATH_CHAR;
-			    libPath[libPathCount-1][j+1]=0;
-			}
-			else
-			{
-			    libPath[libPathCount-1]=checkStrdup(argv[i]);
-			}
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		printf("Invalid switch %s\n",argv[i]);
-		exit(1);
-		break;
-	    case 'h':
-	    case 'H':
-	    case '?':
-		if(strlen(argv[i])==2)
-		{
-		    helpRequested=TRUE;
-		}
-		else if(!strcmp(argv[i]+1,"heapsize"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setheap=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad heap size\n");
-			    exit(1);
-			}
-			gotheap=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else if(!strcmp(argv[i]+1,"heapcommitsize"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setheapcommit=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad heap commit size\n");
-			    exit(1);
-			}
-			gotheapcommit=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		break;
-	    case 'b':
-		if(!strcmp(argv[i]+1,"base"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setbase=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad image base\n");
-			    exit(1);
-			}
-			if(setbase&0xffff)
-			{
-			    printf("Bad image base\n");
-			    exit(1);
-			}
-			gotbase=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else
-		{
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 's':
-		if(!strcmp(argv[i]+1,"subsys"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			if(!strcmp(argv[i],"gui")
-			   || !strcmp(argv[i],"windows")
-			   || !strcmp(argv[i],"win"))
-			{
-			    setsubsys=PE_SUBSYS_WINDOWS;
-			    gotsubsys=TRUE;
-			}
-			else if(!strcmp(argv[i],"char")
-				|| !strcmp(argv[i],"console")
-				|| !strcmp(argv[i],"con"))
-			{
-			    setsubsys=PE_SUBSYS_CONSOLE;
-			    gotsubsys=TRUE;
-			}
-			else if(!strcmp(argv[i],"native"))
-			{
-			    setsubsys=PE_SUBSYS_NATIVE;
-			    gotsubsys=TRUE;
-			}
-			else if(!strcmp(argv[i],"posix"))
-			{
-			    setsubsys=PE_SUBSYS_POSIX;
-			    gotsubsys=TRUE;
-			}
-			else
-			{
-			    printf("Invalid subsystem id %s\n",argv[i]);
-			    exit(1);
-			}
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else if(!strcmp(argv[i]+1,"subsysver"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			if(sscanf(argv[i],"%d.%d%n",&setsubsysmajor,&setsubsysminor,&j)!=2)
-			{
-			    printf("Invalid version number %s\n",argv[i]);
-			    exit(1);
-			}
-			if((j!=strlen(argv[i])) || (setsubsysmajor<0) || (setsubsysminor<0)
-			   || (setsubsysmajor>65535) || (setsubsysminor>65535))
-			{
-			    printf("Invalid version number %s\n",argv[i]);
-			    exit(1);
-			}
-			gotsubsysver=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else if(!strcmp(argv[i]+1,"stacksize"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setstack=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad stack size\n");
-			    exit(1);
-			}
-			gotstack=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else if(!strcmp(argv[i]+1,"stackcommitsize"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setstackcommit=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad stack commit size\n");
-			    exit(1);
-			}
-			gotstackcommit=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else if(!strcmp(argv[i]+1,"stub"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			stubName=argv[i];
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		    break;
-		}
-		else
-		{
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 'f':
-		if(!strcmp(argv[i]+1,"filealign"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			setfalign=strtoul(argv[i],&p,0);
-			if(p[0]) /* if not at end of arg */
-			{
-			    printf("Bad file alignment\n");
-			    exit(1);
-			}
-			if((setfalign<512)|| (setfalign>65536)
-			   || (getBitCount(setfalign)>1))
-			{
-			    printf("Bad file alignment\n");
-			    exit(1);
-			}
-			gotfalign=TRUE;
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		}
-		else
-		{
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 'd':
-		if(!strcmp(argv[i]+1,"dll"))
-		{
-		    buildDll=TRUE;
-		}
-		else
-		{
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-	    case 'e':
-		if(!strcmp(argv[i]+1,"entry"))
-		{
-		    if(i<(argc-1))
-		    {
-			i++;
-			entryPoint=argv[i];
-		    }
-		    else
-		    {
-			printf("Invalid switch %s\n",argv[i]);
-			exit(1);
-		    }
-		}
-		else
-		{
-		    printf("Invalid switch %s\n",argv[i]);
-		    exit(1);
-		}
-		break;
-		
-	    default:
-		printf("Invalid switch %s\n",argv[i]);
-		exit(1);
-	    }
-	}
-	else
-	{
-	    filename=checkRealloc(filename,(filecount+1)*sizeof(PCHAR));
-	    filename[filecount]=checkMalloc(strlen(argv[i])+1);
-	    memcpy(filename[filecount],argv[i],strlen(argv[i])+1);
-	    for(j=strlen(filename[filecount]);
-		j&&(filename[filecount][j]!='.')&&
-		    (filename[filecount][j]!=PATH_CHAR);
-		j--);
-	    if((j<0) || (filename[filecount][j]!='.'))
-	    {
-		j=strlen(filename[filecount]);
-		/* add default extension if none specified */
-		filename[filecount]=checkRealloc(filename[filecount],strlen(argv[i])+5);
-		strcpy(filename[filecount]+j,DEFAULT_EXTENSION);
-	    }
-	    filecount++;
-	}
-    }
-    if(helpRequested || !filecount)
-    {
-	printf("Usage: ALINK [file [file [...]]] [options]\n");
-	printf("\n");
-	printf("    Each file may be an object file, a library, or a Win32 resource\n");
-	printf("    file. If no extension is specified, .obj is assumed. Modules are\n");
-	printf("    only loaded from library files if they are required to match an\n");
-	printf("    external reference.\n");
-	printf("    Options and files may be listed in any order, all mixed together.\n");
-	printf("\n");
-	printf("The following options are permitted:\n");
-	printf("\n");
-	printf("    @name   Load additional options from response file name\n");
-	printf("    -c      Enable Case sensitivity\n");
-	printf("    -c+     Enable Case sensitivity\n");
-	printf("    -c-     Disable Case sensitivity\n");
-	printf("    -p      Enable segment padding\n");
-	printf("    -p+     Enable segment padding\n");
-	printf("    -p-     Disable segment padding\n");
-	printf("    -m      Enable map file\n");
-	printf("    -m+     Enable map file\n");
-	printf("    -m-     Disable map file\n");
-	printf("----Press Enter to continue---");
-	while(((c=getchar())!='\n') && (c!=EOF));
-	printf("\n");
-	printf("    -h      Display this help list\n");
-	printf("    -H      \"\n");
-	printf("    -?      \"\n");
-	printf("    -L ddd  Add directory ddd to search list\n");
-	printf("    -o name Choose output file name\n");
-	printf("    -oXXX   Choose output format XXX\n");
-	printf("        Available options are:\n");
-	printf("            COM - MSDOS COM file\n");
-	printf("            EXE - MSDOS EXE file\n");
-	printf("            PE  - Win32 PE Executable\n");
-	printf("    -entry name   Use public symbol name as the entry point\n");
-	printf("----Press Enter to continue---");
-	while(((c=getchar())!='\n') && (c!=EOF));
-	printf("\nOptions for PE files:\n");
-	printf("    -base addr        Set base address of image\n");
-	printf("    -filealign addr   Set section alignment in file\n");
-	printf("    -objectalign addr Set section alignment in memory\n");
-	printf("    -subsys xxx       Set subsystem used\n");
-	printf("        Available options are:\n");
-	printf("            console   Select character mode\n");
-	printf("            con       \"\n");
-	printf("            char      \"\n");
-	printf("            windows   Select windowing mode\n");
-	printf("            win       \"\n");
-	printf("            gui       \"\n");
-	printf("            native    Select native mode\n");
-	printf("            posix     Select POSIX mode\n");
-	printf("    -subsysver x.y    Select subsystem version x.y\n");
-	printf("    -osver x.y        Select OS version x.y\n");
-	printf("    -stub xxx         Use xxx as the MSDOS stub\n");
-	printf("    -dll              Build DLL instead of EXE\n");
-	printf("    -stacksize xxx    Set stack size to xxx\n");
-	printf("    -stackcommitsize xxx Set stack commit size to xxx\n");
-	printf("    -heapsize xxx     Set heap size to xxx\n");
-	printf("    -heapcommitsize xxx Set heap commit size to xxx\n");
-	exit(0);
-    }
-    if((output_type!=OUTPUT_PE) &&
-       (gotoalign || gotfalign || gotbase || gotsubsys || gotstack ||
-	gotstackcommit || gotheap || gotheapcommit || buildDll || stubName || 
-	gotsubsysver || gotosver))
-    {
-	printf("Option not supported for non-PE output formats\n");
-	exit(1);
-    }
-    if(gotstack)
-    {
-	stackSize=setstack;
-    }
-    if(gotstackcommit)
-    {
-	stackCommitSize=setstackcommit;
-    }
-    if(stackCommitSize>stackSize)
-    {
-	printf("Stack commit size is greater than stack size, committing whole stack\n");
-	stackCommitSize=stackSize;
-    }
-    if(gotheap)
-    {
-	heapSize=setheap;
-    }
-    if(gotheapcommit)
-    {
-	heapCommitSize=setheapcommit;
-    }
-    if(heapCommitSize>heapSize)
-    {
-	printf("Heap commit size is greater than heap size, committing whole heap\n");
-	heapCommitSize=heapSize;
-    }
-    if(gotoalign)
-    {
-	objectAlign=setoalign;
-    }
-    if(gotfalign)
-    {
-	fileAlign=setfalign;
-    }
-    if(gotbase)
-    {
-	imageBase=setbase;
-    }
-    if(gotsubsys)
-    {
-	subSystem=setsubsys;
-    }
-    if(gotsubsysver)
-    {
-	subsysMajor=setsubsysmajor;
-	subsysMinor=setsubsysminor;
-    }
-    if(gotosver)
-    {
-	osMajor=setosmajor;
-	osMinor=setosminor;
-    }
+PSEG absoluteSegment=NULL;
+
+static BOOL NULLDetect(PFILE f,PCHAR name)
+{
+    return FALSE;
 }
 
-void matchExterns()
+static BOOL NULLLoad(PFILE f,PMODULE mod)
 {
-    long i,j,k,old_nummods;
-    int n;
-    PSORTENTRY listnode;
-    PCHAR name;
-    PPUBLIC pubdef;
-
-    do
-    {
-	for(i=0;i<expcount;i++)
-	{
-	    if(expdefs[i].pubdef) continue;
-	    if(listnode=binarySearch(publics,pubcount,expdefs[i].int_name))
-	    {
-		for(k=0;k<listnode->count;k++)
-		{
-		    /* exports can only match global publics */
-		    if(((PPUBLIC)listnode->object[k])->modnum==0)
-		    {
-			expdefs[i].pubdef=(PPUBLIC)listnode->object[k];
-			break;
-		    }
-		}
-	    }
-	}
-	for(i=0;i<extcount;i++)
-	{
-	    /* skip if we've already matched a public symbol */
-	    /* as they override all others */
-	    if(externs[i].flags==EXT_MATCHEDPUBLIC) continue;
-	    externs[i].flags=EXT_NOMATCH;
-	    if(listnode=binarySearch(publics,pubcount,externs[i].name))
-	    {
-		for(k=0;k<listnode->count;k++)
-		{
-		    /* local publics can only match externs in same module */
-		    /* and global publics can only match global externs */
-		    if(((PPUBLIC)listnode->object[k])->modnum==externs[i].modnum)
-		    {
-			externs[i].pubdef=(PPUBLIC)listnode->object[k];
-			externs[i].flags=EXT_MATCHEDPUBLIC;
-			break;
-		    }
-		}
-	    }
-	    if(externs[i].flags==EXT_NOMATCH)
-	    {
-		for(j=0;j<impcount;j++)
-		{
-		    if(!strcmp(externs[i].name,impdefs[j].int_name)
-		       || ((case_sensitive==0) &&
-			   !stricmp(externs[i].name,impdefs[j].int_name)))
-		    {
-			externs[i].flags=EXT_MATCHEDIMPORT;
-			externs[i].impnum=j;
-			impsreq++;
-		    }
-		}
-	    }
-	    if(externs[i].flags==EXT_NOMATCH)
-	    {
-		for(j=0;j<expcount;j++)
-		{
-		    if(!expdefs[j].pubdef) continue;
-		    if(!strcmp(externs[i].name,expdefs[j].exp_name)
-		       || ((case_sensitive==0) &&
-			   !stricmp(externs[i].name,expdefs[j].exp_name)))
-		    {
-			externs[i].pubdef=expdefs[j].pubdef;
-			externs[i].flags=EXT_MATCHEDPUBLIC;
-		    }
-		}
-	    }
-	}
-
-	old_nummods=nummods;
-	for(i=0;(i<expcount)&&(nummods==old_nummods);i++)
-	{
-	    if(!expdefs[i].pubdef)
-	    {
-		for(k=0;k<libcount;++k)
-		{
-		    name=checkStrdup(expdefs[i].int_name);
-		    if(!(libfiles[k].flags&LIBF_CASESENSITIVE))
-		    {
-			strupr(name);
-		    }
-		
-		    if(listnode=binarySearch(libfiles[k].symbols,libfiles[k].numsyms,name))
-		    {
-			loadlibmod(k,listnode->count);
-			break;
-		    }
-		    free(name);
-		}
-	    }
-	}
-	for(i=0;(i<extcount)&&(nummods==old_nummods);i++)
-	{
-	    if(externs[i].flags==EXT_NOMATCH)
-	    {
-		for(k=0;k<libcount;++k)
-		{
-		    name=checkStrdup(externs[i].name);
-		    if(!(libfiles[k].flags&LIBF_CASESENSITIVE))
-		    {
-			strupr(name);
-		    }
-		
-		    if(listnode=binarySearch(libfiles[k].symbols,libfiles[k].numsyms,name))
-		    {
-			loadlibmod(k,listnode->count);
-			break;
-		    }
-		    free(name);
-		}
-	    }
-	}
-	for(i=0;(i<pubcount)&&(nummods==old_nummods);++i)
-	{
-	    for(k=0;k<publics[i].count;++k)
-	    {
-		pubdef=(PPUBLIC)publics[i].object[k];
-		if(!pubdef->aliasName) continue;
-		if(listnode=binarySearch(publics,pubcount,pubdef->aliasName))
-		{
-		    for(j=0;j<listnode->count;j++)
-		    {
-			if((((PPUBLIC)listnode->object[j])->modnum==pubdef->modnum)
-			   && !((PPUBLIC)listnode->object[j])->aliasName)
-			{
-			    /* if we've found a match for the alias, then kill the alias */
-			    free(pubdef->aliasName);
-			    (*pubdef)=(*((PPUBLIC)listnode->object[j]));
-			    break;
-			}
-		    }
-		}
-		if(!pubdef->aliasName) continue;
-		for(k=0;k<libcount;++k)
-		{
-		    name=checkStrdup(pubdef->aliasName);
-		    if(!(libfiles[k].flags&LIBF_CASESENSITIVE))
-		    {
-			strupr(name);
-		    }
-		
-		    if(listnode=binarySearch(libfiles[k].symbols,libfiles[k].numsyms,name))
-		    {
-			loadlibmod(k,listnode->count);
-			break;
-		    }
-		    free(name);
-		}
-		
-	    }
-	}
-	
-    } while (old_nummods!=nummods);
+    return FALSE;
 }
 
-void matchComDefs()
+CINPUTFMT inputFormats[]={
+    {"omf",".obj",OMFDetect,loadOMFModule,"Microsoft/Intel Object Module Format"},
+    {"mscoff",".obj",COFFDetect,MSCOFFLoad,"Microsoft Win32 COFF"},
+    {"djgpp",".o",COFFDetect,DJGPPLoad,"DJGPP COFF"},
+    {"omflib",".lib",OMFLibDetect,OMFLibLoad,"MS/Intel OMF Library"},
+    {"mslib",".lib",COFFLibDetect,MSCOFFLibLoad,"Microsoft Win32 COFF Library"},
+    {"djgpplib",".a",COFFLibDetect,DJGPPLibLoad,"DJGPP COFF Library"},
+    {"win32res",".res",Res32Detect,Res32Load,"Windows 32-bit resource file"},
+    {NULL,NULL,NULL,NULL,NULL}
+};
+
+COUTPUTFMT outputFormats[]={
+    {"pe",PEExtension,PEInitialise,PEFinalise,PESwitches,"MS Portable Executable format"},
+    {"exe",".exe",EXEInitialise,EXEFinalise,EXESwitches,"MSDOS EXE format"},
+    {"com",".com",COMInitialise,BINFinalise,NULL,"MSDOS COM format"},
+    {"bin",".bin",BINInitialise,BINFinalise,BINSwitches,"Binary format"},
+    {NULL,NULL,NULL,NULL,NULL,NULL}
+};
+
+static CSWITCHENTRY systemSwitches[]={
+    {"c",0,"Enable case sensitivity"}, /* case sensitivity */
+    {"c+",0,"Enable case sensitivity"}, 
+    {"c-",0,"Disable case sensitivity"},
+    {"p",0,"Enable segment padding"}, /* segment padding */
+    {"p+",0,"Enable segment padding"},
+    {"p-",0,"Disable segment padding"},
+    {"m",1,"Set map file name"}, /* map file */
+    {"m+",0,"Enable map file"},
+    {"m-",0,"Disable map file"},
+    {"h",0,"Display help screen"}, /* help */
+    {"H",0,"Display help screen"},
+    {"?",0,"Display help screen"},
+    {"-help",0,"Display help screen"},
+    {"L",1,"Add path to library search list"}, /* library paths */
+    {"o",1,"Set output file name"}, /* output file */
+    {"oPE",0,"Select PE output format (compatibility option)"}, /* output formats */
+    {"oEXE",0,"Select EXE output format (compatibility option)"},
+    {"oCOM",0,"Select COM output format (compatibility option)"},
+    {"entry",1,"Set entry point"}, /* entry point */
+    {"f",1,"Select specified output format"}, /* output format */
+    {"nodeflib",0,"Don't use default libraries from object files"}, /* no default libraries */
+    {"iformat",2,"Select specified input format for specified file"},
+#if 0
+    {"nocase",0,"Disable case sensitivity"}, /* disable case sensitivity */
+    {"nosearch",1,"Don't search specified library"}, /* disable single library */
+#endif
+    {NULL,0}
+};
+
+static PSWITCHENTRY switchList=NULL;
+static UINT switchCount;
+static PCOUTPUTFMT chosenFormat=NULL;
+
+PMODULE createModule(PCHAR filename)
 {
-    int i,j,k;
-    int comseg;
-    int comfarseg;
-    PSORTENTRY listnode;
-    PPUBLIC pubdef;
+    PMODULE m;
 
-    if(!comcount) return;
+    modules=checkRealloc(modules,(moduleCount+1)*sizeof(PMODULE));
 
-    for(i=0;i<comcount;i++)
-    {
-	if(!comdefs[i]) continue;
-	for(j=0;j<i;j++)
-	{
-	    if(!comdefs[j]) continue;
-	    if(comdefs[i]->modnum!=comdefs[j]->modnum) continue;
-	    if(strcmp(comdefs[i]->name,comdefs[j]->name)==0)
-	    {
-		if(comdefs[i]->isFar!=comdefs[j]->isFar)
-		{
-		    printf("Mismatched near/far type for COMDEF %s\n",comdefs[i]->name);
-		    exit(1);
-		}
-		if(comdefs[i]->length>comdefs[j]->length)
-		    comdefs[j]->length=comdefs[i]->length;
-		free(comdefs[i]->name);
-		free(comdefs[i]);
-		comdefs[i]=0;
-		break;
-	    }
-	}
-    }
+    modules[moduleCount]=m=checkMalloc(sizeof(MODULE));
+    moduleCount++;
+    m->name=NULL;
+    m->file=filename;
+    m->compiler=NULL;
+    m->comments=NULL;
+    m->dependencies=NULL;
+    m->sourceFiles=NULL;
+    m->commentCount=0;
+    m->depCount=0;
+    m->sourceFileCount=0;
+    m->formatSpecificData=NULL;
+    m->fmt=NULL;
 
-    for(i=0;i<comcount;i++)
-    {
-	if(!comdefs[i]) continue;
-	if(listnode=binarySearch(publics,pubcount,comdefs[i]->name))
-	{
-	    for(j=0;j<listnode->count;j++)
-	    {
-		/* local publics can only match externs in same module */
-		/* and global publics can only match global externs */
-		if((((PPUBLIC)listnode->object[j])->modnum==comdefs[i]->modnum)
-		   && !((PPUBLIC)listnode->object[j])->aliasName)
-		{
-		    free(comdefs[i]->name);
-		    free(comdefs[i]);
-		    comdefs[i]=0;
-		    break;
-		}
-	    }
-	}
-    }
-
-    seglist=(PPSEG)checkRealloc(seglist,(segcount+1)*sizeof(PSEG));
-    seglist[segcount]=(PSEG)checkMalloc(sizeof(SEG));
-    namelist=(PPCHAR)checkRealloc(namelist,(namecount+1)*sizeof(PCHAR));
-    namelist[namecount]=checkStrdup("COMDEFS");
-    seglist[segcount]->nameindex=namecount;
-    seglist[segcount]->classindex=-1;
-    seglist[segcount]->overlayindex=-1;
-    seglist[segcount]->length=0;
-    seglist[segcount]->data=NULL;
-    seglist[segcount]->datmask=NULL;
-    seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-    seglist[segcount]->winFlags=WINF_READABLE | WINF_WRITEABLE | WINF_NEG_FLAGS;
-    comseg=segcount;
-    segcount++;
-    namecount++;
-
-
-    for(i=0;i<grpcount;i++)
-    {
-	if(!grplist[i]) continue;
-	if(grplist[i]->nameindex<0) continue;
-	if(!strcmp("DGROUP",namelist[grplist[i]->nameindex]))
-	{
-	    if(grplist[i]->numsegs==0) continue; /* don't add to an emtpy group */
-	    /* because empty groups are special */
-	    /* else add to group */
-	    grplist[i]->segindex[grplist[i]->numsegs]=comseg;
-	    grplist[i]->numsegs++;
-	    break;
-	}
-    }
-
-    seglist=(PPSEG)checkRealloc(seglist,(segcount+1)*sizeof(PSEG));
-    seglist[segcount]=(PSEG)checkMalloc(sizeof(SEG));
-    namelist=(PPCHAR)checkRealloc(namelist,(namecount+1)*sizeof(PCHAR));
-    namelist[namecount]=checkStrdup("FARCOMDEFS");
-    seglist[segcount]->nameindex=namecount;
-    seglist[segcount]->classindex=-1;
-    seglist[segcount]->overlayindex=-1;
-    seglist[segcount]->length=0;
-    seglist[segcount]->data=NULL;
-    seglist[segcount]->datmask=NULL;
-    seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-    seglist[segcount]->winFlags=WINF_READABLE | WINF_WRITEABLE | WINF_NEG_FLAGS;
-    namecount++;
-    comfarseg=segcount;
-    segcount++;
-
-    for(i=0;i<comcount;i++)
-    {
-	if(!comdefs[i]) continue;
-	pubdef=(PPUBLIC)checkMalloc(sizeof(PUBLIC));
-	if(comdefs[i]->isFar)
-	{
-	    if(comdefs[i]->length>65536)
-	    {
-		seglist=(PPSEG)checkRealloc(seglist,(segcount+1)*sizeof(PSEG));
-		seglist[segcount]=(PSEG)checkMalloc(sizeof(SEG));
-		namelist=(PPCHAR)checkRealloc(namelist,(namecount+1)*sizeof(PCHAR));
-		namelist[namecount]=checkStrdup("FARCOMDEFS");
-		seglist[segcount]->nameindex=namecount;
-		seglist[segcount]->classindex=-1;
-		seglist[segcount]->overlayindex=-1;
-		seglist[segcount]->length=comdefs[i]->length;
-		seglist[segcount]->data=NULL;
-		seglist[segcount]->datmask=
-		    (PUCHAR)checkMalloc((comdefs[i]->length+7)/8);
-		for(j=0;j<(comdefs[i]->length+7)/8;j++)
-		    seglist[segcount]->datmask[j]=0;
-		seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-		seglist[segcount]->winFlags=WINF_READABLE | WINF_WRITEABLE | WINF_NEG_FLAGS;
-		namecount++;
-		pubdef->segnum=segcount;
-		segcount++;
-		pubdef->ofs=0;
-	    }
-	    else if((comdefs[i]->length+seglist[comfarseg]->length)>65536)
-	    {
-		seglist[comfarseg]->datmask=
-		    (PUCHAR)checkMalloc((seglist[comfarseg]->length+7)/8);
-		for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
-		    seglist[comfarseg]->datmask[j]=0;
-
-		seglist=(PPSEG)checkRealloc(seglist,(segcount+1)*sizeof(PSEG));
-		seglist[segcount]=(PSEG)checkMalloc(sizeof(SEG));
-		namelist=(PPCHAR)checkRealloc(namelist,(namecount+1)*sizeof(PCHAR));
-		namelist[namecount]=checkStrdup("FARCOMDEFS");
-		seglist[segcount]->nameindex=namecount;
-		seglist[segcount]->classindex=-1;
-		seglist[segcount]->overlayindex=-1;
-		seglist[segcount]->length=comdefs[i]->length;
-		seglist[segcount]->data=NULL;
-		seglist[segcount]->datmask=NULL;
-		seglist[segcount]->attr=SEG_PRIVATE | SEG_PARA;
-		seglist[segcount]->winFlags=WINF_READABLE |WINF_WRITEABLE | WINF_NEG_FLAGS;
-		comfarseg=segcount;
-		segcount++;
-		namecount++;
-		pubdef->segnum=comfarseg;
-		pubdef->ofs=0;
-	    }
-	    else
-	    {
-		pubdef->segnum=comfarseg;
-		pubdef->ofs=seglist[comfarseg]->length;
-		seglist[comfarseg]->length+=comdefs[i]->length;
-	    }
-	}
-	else
-	{
-	    pubdef->segnum=comseg;
-	    pubdef->ofs=seglist[comseg]->length;
-	    seglist[comseg]->length+=comdefs[i]->length;
-	}
-	pubdef->modnum=comdefs[i]->modnum;
-	pubdef->grpnum=-1;
-	pubdef->typenum=0;
-	pubdef->aliasName=NULL;
-	if(listnode=binarySearch(publics,pubcount,comdefs[i]->name))
-	{
-	    for(j=0;j<listnode->count;++j)
-	    {
-		if(((PPUBLIC)listnode->object[j])->modnum==pubdef->modnum)
-		{
-		    if(!((PPUBLIC)listnode->object[j])->aliasName)
-		    {
-			printf("Duplicate public symbol %s\n",comdefs[i]->name);
-			exit(1);
-		    }
-		    free(((PPUBLIC)listnode->object[j])->aliasName);
-		    (*((PPUBLIC)listnode->object[j]))=(*pubdef);
-		    pubdef=NULL;
-		    break;
-		}
-	    }
-	}
-	if(pubdef)
-	{
-	    sortedInsert(&publics,&pubcount,comdefs[i]->name,pubdef);
-	}
-    }
-    seglist[comfarseg]->datmask=
-	(PUCHAR)checkMalloc((seglist[comfarseg]->length+7)/8);
-    for(j=0;j<(seglist[comfarseg]->length+7)/8;j++)
-	seglist[comfarseg]->datmask[j]=0;
-
-
-    seglist[comseg]->datmask=
-	(PUCHAR)checkMalloc((seglist[comseg]->length+7)/8);
-    for(j=0;j<(seglist[comseg]->length+7)/8;j++)
-	seglist[comseg]->datmask[j]=0;
-
-
-    for(i=0;i<expcount;i++)
-    {
-	if(expdefs[i].pubdef) continue;
-	if(listnode=binarySearch(publics,pubcount,expdefs[i].int_name))
-	{
-	    for(j=0;j<listnode->count;j++)
-	    {
-		/* global publics only can match exports */
-		if(((PPUBLIC)listnode->object[j])->modnum==0)
-		{
-		    expdefs[i].pubdef=(PPUBLIC)listnode->object[j];
-		    break;
-		}
-	    }
-	}
-    }
-    for(i=0;i<extcount;i++)
-    {
-	if(externs[i].flags!=EXT_NOMATCH) continue;
-	if(listnode=binarySearch(publics,pubcount,externs[i].name))
-	{
-	    for(j=0;j<listnode->count;j++)
-	    {
-		/* global publics only can match exports */
-		if(((PPUBLIC)(listnode->object[j]))->modnum==externs[i].modnum)
-		{
-		    externs[i].pubdef=(PPUBLIC)(listnode->object[j]);
-		    externs[i].flags=EXT_MATCHEDPUBLIC;
-		    break;
-		}
-	    }
-	}
-    }
-}
-
-void sortSegments()
-{
-    long i,j,k;
-    UINT base,align;
-    long baseSeg;
-
-    for(i=0;i<segcount;i++)
-    {
-	if(seglist[i])
-	{
-	    if((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS)
-	    {
-		seglist[i]->absframe=0;
-	    }
-	}
-    }
-
-    outcount=0;
-    base=0;
-    outlist=checkMalloc(sizeof(PSEG)*segcount);
-    for(i=0;i<grpcount;i++)
-    {
-	if(grplist[i])
-	{
-	    grplist[i]->segnum=-1;
-	    for(j=0;j<grplist[i]->numsegs;j++)
-	    {
-		k=grplist[i]->segindex[j];
-		if(!seglist[k])
-		{
-		    printf("Error - group %s contains non-existent segment\n",namelist[grplist[i]->nameindex]);
-		    exit(1);
-		}
-		/* don't add removed sections */
-		if(seglist[k]->winFlags & WINF_REMOVE)
-		{
-		    continue;
-		}
-		/* add non-absolute segment */
-		if((seglist[k]->attr&SEG_ALIGN)!=SEG_ABS)
-		{
-		    switch(seglist[k]->attr&SEG_ALIGN)
-		    {
-		    case SEG_WORD:
-			align=2;
-			break;
-		    case SEG_DWORD:
-			align=4;
-			break;
-		    case SEG_8BYTE:
-			align=0x8;
-			break;
-		    case SEG_PARA:
-			align=0x10;
-			break;
-		    case SEG_32BYTE:
-			align=0x20;
-			break;
-		    case SEG_64BYTE:
-			align=0x40;
-			break;
-		    case SEG_PAGE:
-			align=0x100;
-			break;
-		    case SEG_MEMPAGE:
-			align=0x1000;
-			break;
-		    case SEG_BYTE:
-		    default:
-			align=1;
-			break;
-		    }
-		    if(align<objectAlign)
-		    {
-			align=objectAlign;
-		    }
-		    base=(base+align-1)&(0xffffffff-(align-1));
-		    seglist[k]->base=base;
-		    if(seglist[k]->length>0)
-		    {
-			base+=seglist[k]->length;
-			if(seglist[k]->absframe!=0)
-			{
-			    printf("Error - Segment %s part of more than one group\n",namelist[seglist[k]->nameindex]);
-			    exit(1);
-			}
-			seglist[k]->absframe=1;
-			seglist[k]->absofs=i+1;
-			if(grplist[i]->segnum<0)
-			{
-			    grplist[i]->segnum=k;
-			}
-			if(outcount==0)
-			{
-			    baseSeg=k;
-			}
-			else
-			{
-			    outlist[outcount-1]->virtualSize=seglist[k]->base-
-				outlist[outcount-1]->base;
-			}
-			outlist[outcount]=seglist[k];
-			outcount++;
-		    }
-		}
-	    }
-	}
-    }
-    for(i=0;i<segcount;i++)
-    {
-	if(seglist[i])
-	{
-	    /* don't add removed sections */
-	    if(seglist[i]->winFlags & WINF_REMOVE)
-	    {
-		continue;
-	    }
-	    /* add non-absolute segment, not already dealt with */
-	    if(((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS) &&
-	       !seglist[i]->absframe)
-	    {
-		switch(seglist[i]->attr&SEG_ALIGN)
-		{
-		case SEG_WORD:
-		case SEG_BYTE:
-		case SEG_DWORD:
-		case SEG_PARA:
-		    align=0x10;
-		    break;
-		case SEG_PAGE:
-		    align=0x100;
-		    break;
-		case SEG_MEMPAGE:
-		    align=0x1000;
-		    break;
-		default:
-		    align=1;
-		    break;
-		}
-		if(align<objectAlign)
-		{
-		    align=objectAlign;
-		}
-		base=(base+align-1)&(0xffffffff-(align-1));
-		seglist[i]->base=base;
-		if(seglist[i]->length>0)
-		{
-		    base+=seglist[i]->length;
-		    seglist[i]->absframe=1;
-		    seglist[i]->absofs=0;
-		    if(outcount==0)
-		    {
-			baseSeg=i;
-		    }
-		    else
-		    {
-			outlist[outcount-1]->virtualSize=seglist[i]->base-
-			    outlist[outcount-1]->base;
-		    }
-		    outlist[outcount]=seglist[i];
-		    outcount++;
-		}
-	    }
-	    else if((seglist[i]->attr&SEG_ALIGN)==SEG_ABS)
-	    {
-		seglist[i]->base=(seglist[i]->absframe<<4)+seglist[i]->absofs;
-	    }
-	}
-    }
-    /* build size of last segment in output list */
-    if(outcount)
-    {
-	outlist[outcount-1]->virtualSize=
-	    (outlist[outcount-1]->length+objectAlign-1)&
-	    (0xffffffff-(objectAlign-1));
-    }
-    for(i=0;i<grpcount;i++)
-    {
-	if(grplist[i] && (grplist[i]->segnum<0)) grplist[i]->segnum=baseSeg;
-    }
+    return m;
 }
 
 void loadFiles()
 {
-    long i,j,k;
-    char *name;
+    UINT i,j;
+    INT k;
+    PCHAR name;
+    PCHAR ext;
+    FILE *afile;
+    PMODULE m;
+    PCINPUTFMT fmt;
 
-    for(i=0;i<filecount;i++)
+    for(i=0;i<fileCount;i++)
     {
-	afile=fopen(filename[i],"rb");
-	if(!strchr(filename[i],PATH_CHAR))
+	m=fileNames[i];
+	afile=fopen(m->file,"rb");
+	if(!strpbrk(m->file,PATHCHARS))
 	{
 	    /* if no path specified, search library path list */
 	    for(j=0;!afile && j<libPathCount;j++)
 	    {
-		name=(char*)checkMalloc(strlen(libPath[j])+strlen(filename[i])+1);
+		name=(char*)checkMalloc(strlen(libPath[j])+strlen(m->file)+1);
 		strcpy(name,libPath[j]);
-		strcat(name,filename[i]);
+		strcat(name,m->file);
 		afile=fopen(name,"rb");
 		if(afile)
 		{
-		    free(filename[i]);
-		    filename[i]=name;
+		    free(m->file);
+		    m->file=name;
 		    name=NULL;
 		}
 		else
@@ -1434,193 +176,170 @@ void loadFiles()
 	}
 	if(!afile)
 	{
-	    printf("Error opening file %s\n",filename[i]);
-	    exit(1);
+	    addError("Unable to open file %s",m->file);
+	    continue;
 	}
-	for(k=0;k<i;++k)
+	for(j=0;j<i;++j)
 	{
-	    if(!strcmp(filename[i],filename[k])) break;
+#ifdef GOT_CASE_SENSITIVE_FILENAMES	    
+	    if(!strcmp(m->file,fileNames[j]->file)) break;
+#else
+	    if(!stricmp(m->file,fileNames[j]->file)) break;
+#endif
 	}
-	if(k!=i)
+	if(j!=i)
 	{
 	    fclose(afile);
 	    continue;
 	}
 	
-	filepos=0;
-	printf("Loading file %s\n",filename[i]);
-	j=fgetc(afile);
-	fseek(afile,0,SEEK_SET);
-	switch(j)
+	diagnostic(DIAG_VERBOSE,"Loading file %s\n",m->file);
+
+	if(!m->fmt)
 	{
-	case LIBHDR:
-	    loadlib(afile,filename[i]);
-	    break;
-	case THEADR:
-	case LHEADR:
-	    loadmod(afile);
-	    break;
-	case 0:
-	    loadres(afile);
-	    break;
-	case 0x4c:
-	case 0x4d:
-	case 0x4e:
-	    loadcoff(afile);
-	    break;
-	case 0x21:
-	    loadCoffLib(afile,filename[i]);
-	    break;
-	default:
-	    printf("Unknown file type\n");
-	    fclose(afile);
-	    exit(1);
+	    fmt=NULL;
+	    for(j=0;inputFormats[j].name;++j)
+	    {
+		fseek(afile,0,SEEK_SET);
+		name=m->file;
+		if(!inputFormats[j].detect)
+		{
+		    addError("Missing detect routine for %s",inputFormats[i].name);
+		    continue;
+		}
+		
+		if(!inputFormats[j].extension)
+		    ext="";
+		else
+		    ext=inputFormats[j].extension;
+		
+		k=strlen(name)-strlen(ext);
+		if(k>=0)
+		{
+		    name+=k;
+		}
+		
+		if(!strcmp(name,ext) &&
+		   inputFormats[j].detect(afile,m->file))
+		{
+		    if(fmt)
+		    {
+			addError("%s satisfies detection criteria for %s and %s",m->file,fmt->name,inputFormats[j].name);
+			continue;
+		    }
+		    fmt=inputFormats+j;
+		}
+	    }
+	    if(!fmt)
+	    {
+		addError("Unable to detect format of %s",m->file);
+		fclose(afile);
+		continue;
+	    }
+	    m->fmt=fmt;
 	}
+	else
+	name=NULL;
+
+	if(!m->fmt) continue; /* if format not found, do next file */
+
+	diagnostic(DIAG_VERBOSE,"Format %s\n",m->fmt->name);
+
+	fseek(afile,0,SEEK_SET);
+	if(!m->fmt->load(afile,m))
+	{
+	    addError("Error loading file %s",m->file);
+	}
+	
 	fclose(afile);
     }
 }
 
-void generateMap()
+void checkSegment(PSEG s)
 {
-    long i,j;
-    PPUBLIC q;
-
-    afile=fopen(mapname,"wt");
-    if(!afile)
-    {
-	printf("Error opening map file %s\n",mapname);
-	exit(1);
-    }
-    printf("Generating map file %s\n",mapname);
-
-    for(i=0;i<segcount;i++)
-    {
-	if(seglist[i])
-	{
-	    fprintf(afile,"SEGMENT %s ",
-		    (seglist[i]->nameindex>=0)?namelist[seglist[i]->nameindex]:"");
-	    switch(seglist[i]->attr&SEG_COMBINE)
-	    {
-	    case SEG_PRIVATE:
-		fprintf(afile,"PRIVATE ");
-		break;
-	    case SEG_PUBLIC:
-		fprintf(afile,"PUBLIC ");
-		break;
-	    case SEG_PUBLIC2:
-		fprintf(afile,"PUBLIC(2) ");
-		break;
-	    case SEG_STACK:
-		fprintf(afile,"STACK ");
-		break;
-	    case SEG_COMMON:
-		fprintf(afile,"COMMON ");
-		break;
-	    case SEG_PUBLIC3:
-		fprintf(afile,"PUBLIC(3) ");
-		break;
-	    default:
-		fprintf(afile,"unknown ");
-		break;
-	    }
-	    if(seglist[i]->attr&SEG_USE32)
-	    {
-		fprintf(afile,"USE32 ");
-	    }
-	    else
-	    {
-		fprintf(afile,"USE16 ");
-	    }
-	    switch(seglist[i]->attr&SEG_ALIGN)
-	    {
-	    case SEG_ABS:
-		fprintf(afile,"AT 0%04lXh ",seglist[i]->absframe);
-		break;
-	    case SEG_BYTE:
-		fprintf(afile,"BYTE ");
-		break;
-	    case SEG_WORD:
-		fprintf(afile,"WORD ");
-		break;
-	    case SEG_PARA:
-		fprintf(afile,"PARA ");
-		break;
-	    case SEG_PAGE:
-		fprintf(afile,"PAGE ");
-		break;
-	    case SEG_DWORD:
-		fprintf(afile,"DWORD ");
-		break;
-	    case SEG_MEMPAGE:
-		fprintf(afile,"MEMPAGE ");
-		break;
-	    default:
-		fprintf(afile,"unknown ");
-	    }
-	    if(seglist[i]->classindex>=0)
-		fprintf(afile,"'%s'\n",namelist[seglist[i]->classindex]);
-	    else
-		fprintf(afile,"\n");
-	    fprintf(afile,"  at %08lX, length %08lX\n",seglist[i]->base,seglist[i]->length);
-	}
-    }
-    for(i=0;i<grpcount;i++)
-    {
-	if(!grplist[i]) continue;
-	fprintf(afile,"\nGroup %s:\n",namelist[grplist[i]->nameindex]);
-	for(j=0;j<grplist[i]->numsegs;j++)
-	{
-	    fprintf(afile,"    %s\n",namelist[seglist[grplist[i]->segindex[j]]->nameindex]);
-	}
-    }
-
-    if(pubcount)
-    {
-	fprintf(afile,"\npublics:\n");
-    }
-    for(i=0;i<pubcount;++i)
-    {
-	for(j=0;j<publics[i].count;++j)
-	{
-	    q=(PPUBLIC)publics[i].object[j];
-	    if(q->modnum) continue;
-	    fprintf(afile,"%s at %s:%08lX\n",
-		    publics[i].id,
-		    (q->segnum>=0) ? namelist[seglist[q->segnum]->nameindex] : "Absolute",
-		    q->ofs);
-	}
-    }
+    UINT i;
     
-    if(expcount)
+    if(!s->use32 && (s->length>=0x10000))
     {
-	fprintf(afile,"\n %li exports:\n",expcount);
-	for(i=0;i<expcount;i++)
+	addError("16 bit %s %s exceeds 64K",s->group?"group":"segment",s->name);
+	return;
+    }
+    for(i=0;i<s->contentCount;++i)
+    {
+	if(s->contentList[i].flag==SEGMENT)
 	{
-	    fprintf(afile,"%s(%i)=%s\n",expdefs[i].exp_name,expdefs[i].ordinal,expdefs[i].int_name);
+	    checkSegment(s->contentList[i].seg);
 	}
     }
-    if(impcount)
-    {
-	fprintf(afile,"\n %li imports:\n",impcount);
-	for(i=0;i<impcount;i++)
-	{
-	    fprintf(afile,"%s=%s:%s(%i)\n",impdefs[i].int_name,impdefs[i].mod_name,impdefs[i].flags==0?impdefs[i].imp_name:"",
-		    impdefs[i].flags==0?0:impdefs[i].ordinal);
-	}
-    }
-    fclose(afile);
 }
 
-int main(int argc,char *argv[])
+static void initialise(void)
 {
-    long i,j;
-    int isend;
-    char *libList;
-    PPUBLIC q;
+    UINT i,j;
+    PCSWITCHENTRY se;
+    PCHAR libList;
+    BOOL isend;
+    PCOUTPUTFMT of;
 
-    printf("ALINK v1.6 (C) Copyright 1998-9 Anthony A.J. Williams.\n");
-    printf("All Rights Reserved\n\n");
+    atexit(listErrors);
+    
+    for(i=0;systemSwitches[i].name;++i);
 
+    switchCount=i;
+    if(switchCount)
+    {
+	switchList=checkMalloc(sizeof(SWITCHPARAM)*switchCount);
+	memcpy(switchList,systemSwitches,switchCount*sizeof(SWITCHPARAM));
+    }
+    else
+    {
+	switchList=NULL;
+    }
+    
+
+    /* loop through output formats, getting valid switches */
+    of=outputFormats;
+    for(;of->name;++of)
+    {
+	se=of->switches;
+	if(!se)
+	{
+	    continue;
+	}
+	
+	/* loop through switch list for each in turn */
+	for(;se->name;++se)
+	{
+	    /* check against system switches */
+	    for(i=0;systemSwitches[i].name;++i)
+	    {
+		if(!strcmp(systemSwitches[i].name,se->name))
+		{
+		    addError("Format %s defines invalid switch %s",of->name,se->name);
+		    break;
+		}
+	    }
+	    /* check against list already built */
+	    for(i=0;i<switchCount;++i)
+	    {
+		if(!strcmp(switchList[i].name,se->name))
+		{
+		    if(switchList[i].count==se->count) break;
+		    addError("Format %s defines invalid switch %s",of->name,se->name);
+		    break;
+		}
+	    }
+	    /* not found, so add to list */
+	    if(i==switchCount)
+	    {
+		switchList=checkRealloc(switchList,sizeof(SWITCHENTRY)*(switchCount+1));
+		switchList[switchCount]=(*se);
+		++switchCount;
+	    }
+	}
+    }
+
+    /* now get library search path */
     libList=getenv("LIB");
     if(libList)
     {
@@ -1633,7 +352,7 @@ int main(int argc,char *argv[])
 		{
 		    libPath=(PCHAR*)checkRealloc(libPath,(libPathCount+1)*sizeof(PCHAR));
 		    libList[i]=0;
-		    if(libList[i-1]==PATH_CHAR)
+		    if(strchr(PATHCHARS,libList[i-1]))
 		    {
 			libPath[libPathCount]=checkStrdup(libList+j);
 		    }
@@ -1641,7 +360,8 @@ int main(int argc,char *argv[])
 		    {
 			libPath[libPathCount]=(PCHAR)checkMalloc(i-j+2);
 			strcpy(libPath[libPathCount],libList+j);
-			libPath[libPathCount][i-j]=PATH_CHAR;
+			/* add default path separator=first in list */
+			libPath[libPathCount][i-j]=PATHCHARS[0];
 			libPath[libPathCount][i-j+1]=0;
 		    }
 		    libPathCount++;
@@ -1652,20 +372,380 @@ int main(int argc,char *argv[])
 	}
     }
 
-    processArgs(argc,argv);
+    /* now create the "absolute" segment */
+    absoluteSegment=createSection("ABSOLUTE",NULL,NULL,NULL,0,1);
+}
 
-    if(!filecount)
+void initFormat(PSWITCHPARAM sp)
+{
+    UINT i,j,k,l,line;
+    int c;
+    
+    if(!sp)
     {
-	printf("No files specified\n");
-	exit(1);
+	if(!fileCount)
+	{
+	    /* if no files or switches, then display input+output formats */
+	    diagnostic(DIAG_VITAL,"Usage:   ALINK [parameter] [parameter] ...\n\n");
+	    diagnostic(DIAG_VITAL,"Where each parameter can either be a filename, or an allowed option\n\n");
+	    diagnostic(DIAG_VITAL,"For detailed help specify -h, -H, -? or --help on the command line\n\n");
+	    diagnostic(DIAG_VITAL,"Available input formats are: ");
+	    for(i=0;inputFormats[i].name;++i)
+	    {
+		diagnostic(DIAG_VITAL,"%s ",inputFormats[i].name);
+	    }
+	    diagnostic(DIAG_VITAL,"\n");
+	    diagnostic(DIAG_VITAL,"Available output formats are: ");
+	    for(i=0;outputFormats[i].name;++i)
+	    {
+		diagnostic(DIAG_VITAL,"%s ",outputFormats[i].name);
+	    }
+	    diagnostic(DIAG_VITAL,"\n");
+	    exit(0);
+	}
+	chosenFormat=outputFormats;
+    }
+    else
+    {
+	for(i=0;sp[i].name;++i)
+	{
+	    if(!strcmp(sp[i].name,"h")
+	       || !strcmp(sp[i].name,"H")
+	       || !strcmp(sp[i].name,"?")
+	       || !strcmp(sp[i].name,"-help"))
+	    {
+		diagnostic(DIAG_VITAL,"Usage:   ALINK [parameter] [parameter] ...\n\n");
+		diagnostic(DIAG_VITAL,"Where each parameter can either be a filename, or an allowed option\n\n");
+		diagnostic(DIAG_VITAL,"For detailed help specify -h, -H, -? or --help on the command line\n\n");
+		diagnostic(DIAG_VITAL,"Available input formats are: ");
+		for(i=0;inputFormats[i].name;++i)
+		{
+		    diagnostic(DIAG_VITAL,"%s ",inputFormats[i].name);
+		}
+		diagnostic(DIAG_VITAL,"\n");
+		diagnostic(DIAG_VITAL,"Available output formats are: ");
+		for(i=0;outputFormats[i].name;++i)
+		{
+		    diagnostic(DIAG_VITAL,"%s ",outputFormats[i].name);
+		}
+		diagnostic(DIAG_VITAL,"\n----Press Enter for allowed options----");
+		while(((c=getchar())!='\n') && (c!=EOF));
+		diagnostic(DIAG_VITAL,"General Options:\n");
+		line=1;
+		for(i=0;systemSwitches[i].name;++i)
+		{
+		    if(line>=24)
+		    {
+			diagnostic(DIAG_VITAL,"----Press Enter to continue----");
+			while(((c=getchar())!='\n') && (c!=EOF));
+			line=0;
+		    }
+		    line++;
+		    diagnostic(DIAG_VITAL,"  -%s%ln",systemSwitches[i].name,&k);
+		    for(j=0;j<systemSwitches[i].count;++j)
+		    {
+			diagnostic(DIAG_VITAL," xx");
+			k+=3;
+		    }
+		    for(;k<20;++k) putchar(' ');
+		    diagnostic(DIAG_VITAL,"%.*s\n",(int)(80-k),systemSwitches[i].description?systemSwitches[i].description:"");
+		}
+		for(i=0;outputFormats[i].name;++i)
+		{
+		    if(line>=23)
+		    {
+			diagnostic(DIAG_VITAL,"----Press Enter to continue----");
+			while(((c=getchar())!='\n') && (c!=EOF));
+			line=0;
+		    }
+		    line+=2;
+		    diagnostic(DIAG_VITAL,"\nSwitches for output format %s, %s:\n",outputFormats[i].name,
+			   outputFormats[i].description?outputFormats[i].description:"");
+		    if(!outputFormats[i].switches) continue;
+		    for(j=0;outputFormats[i].switches[j].name;++j)
+		    {
+			if(line>=24)
+			{
+			    diagnostic(DIAG_VITAL,"----Press Enter to continue----");
+			    while(((c=getchar())!='\n') && (c!=EOF));
+			    line=0;
+			}
+			line++;
+			diagnostic(DIAG_VITAL,"  -%s%ln",outputFormats[i].switches[j].name,&k);
+			for(l=0;l<outputFormats[i].switches[j].count;++l)
+			{
+			    diagnostic(DIAG_VITAL," xx");
+			    k+=3;
+			}
+			for(;k<20;++k) putchar(' ');
+			diagnostic(DIAG_VITAL,"%.*s\n",(int)(80-k),outputFormats[i].switches[j].description?
+				   outputFormats[i].switches[j].description:"");
+		    }
+		}
+		exit(0);
+	    }
+	    else if(!strcmp(sp[i].name,"c")
+		    || !strcmp(sp[i].name,"c+"))
+	    {
+		case_sensitive=TRUE;
+	    }
+	    else if(!strcmp(sp[i].name,"c-"))
+	    {
+		case_sensitive=FALSE;
+	    }
+	    else if(!strcmp(sp[i].name,"m+"))
+	    {
+		mapfile=TRUE;
+	    }
+	    else if(!strcmp(sp[i].name,"m-"))
+	    {
+		mapfile=FALSE;
+	    }
+	    else if(!strcmp(sp[i].name,"m"))
+	    {
+		mapfile=TRUE;
+		mapname=sp[i].params[0];
+	    }
+	    else if(!strcmp(sp[i].name,"L"))
+	    {
+		libPath=(PCHAR*)checkRealloc(libPath,(libPathCount+1)*sizeof(PCHAR));
+		j=strlen(sp[i].params[0]);
+		if(strchr(PATHCHARS,sp[i].params[0][j-1]))
+		{
+		    libPath[libPathCount]=checkStrdup(sp[i].params[0]);
+		}
+		else
+		{
+		    libPath[libPathCount]=(PCHAR)checkMalloc(j+2);
+		    strcpy(libPath[libPathCount],sp[i].params[0]);
+		    /* add default path separator=first in list */
+		    libPath[libPathCount][j]=PATHCHARS[0];
+		    libPath[libPathCount][j+1]=0;
+		}
+		libPathCount++;
+	    }
+	    else if(!strcmp(sp[i].name,"f"))
+	    {
+		if(chosenFormat)
+		{
+		    addError("Two output formats specified");
+		    continue;
+		}
+			
+		for(j=0;outputFormats[j].name;++j)
+		{
+		    if(!strcmp(outputFormats[j].name,sp[i].params[0]))
+		    {
+			chosenFormat=outputFormats+j;
+			break;
+		    }
+		}
+		if(!chosenFormat)
+		{
+		    addError("Unknown output format %s",sp[i].params[0]);
+		    continue;
+		}
+	    }
+	    else if(!strcmp(sp[i].name,"o"))
+	    {
+		if(outname)
+		{
+		    addError("Two output names specified, \"%s\" and \"%s\"",
+			     outname,sp[i].params[0]);
+		    continue;
+		}
+		
+		outname=sp[i].params[0];
+	    }
+	    else if(!strcmp(sp[i].name,"entry"))
+	    {
+		if(gotstart)
+		{
+		    addError("Second entry point specified");
+		    continue;
+		}
+		
+		globalExterns=checkRealloc(globalExterns,(globalExternCount+1)*sizeof(PEXTREF));
+		globalExterns[globalExternCount]=checkMalloc(sizeof(EXTREF));
+		globalExterns[globalExternCount]->name=sp[i].params[0];
+		globalExterns[globalExternCount]->typenum=-1;
+		globalExterns[globalExternCount]->pubdef=NULL;
+		globalExterns[globalExternCount]->mod=NULL;
+		globalExterns[globalExternCount]->local=FALSE;
+		
+		/* point start address to this external */
+		startaddr.fseg=startaddr.tseg=NULL;
+		startaddr.text=startaddr.fext=globalExterns[globalExternCount];
+		startaddr.disp=0;
+
+		globalExternCount++;
+		gotstart=TRUE;
+	    }
+	    else if(!strcmp(sp[i].name,"nodeflib"))
+	    {
+		noDefaultLibs=TRUE;
+	    }
+	    else if(!strcmp(sp[i].name,"oEXE"))
+	    {
+		if(chosenFormat)
+		{
+		    addError("Two output formats specified");
+		    continue;
+		}
+			
+		for(j=0;outputFormats[j].name;++j)
+		{
+		    if(!strcmp(outputFormats[j].name,"exe"))
+		    {
+			chosenFormat=outputFormats+j;
+			break;
+		    }
+		}
+		if(!chosenFormat)
+		{
+		    addError("Unknown output format exe");
+		    continue;
+		}
+	    }
+	    else if(!strcmp(sp[i].name,"oCOM"))
+	    {
+		if(chosenFormat)
+		{
+		    addError("Two output formats specified");
+		    continue;
+		}
+			
+		for(j=0;outputFormats[j].name;++j)
+		{
+		    if(!strcmp(outputFormats[j].name,"com"))
+		    {
+			chosenFormat=outputFormats+j;
+			break;
+		    }
+		}
+		if(!chosenFormat)
+		{
+		    addError("Unknown output format com");
+		    continue;
+		}
+	    }
+	    else if(!strcmp(sp[i].name,"oPE"))
+	    {
+		if(chosenFormat)
+		{
+		    addError("Two output formats specified");
+		    continue;
+		}
+			
+		for(j=0;outputFormats[j].name;++j)
+		{
+		    if(!strcmp(outputFormats[j].name,"pe"))
+		    {
+			chosenFormat=outputFormats+j;
+			break;
+		    }
+		}
+		if(!chosenFormat)
+		{
+		    addError("Unknown output format pe");
+		    continue;
+		}
+	    }
+	    else if(!strcmp(sp[i].name,"iformat"))
+	    {
+		/* find specified input format */
+		for(j=0;inputFormats[j].name;++j)
+		{
+		    if(!strcmp(inputFormats[j].name,sp[i].params[0]))
+			break;
+		}
+		/* now add file to list, with specified format */
+		fileNames=checkRealloc(fileNames,(fileCount+1)*sizeof(PMODULE));
+		fileNames[fileCount]=createModule(sp[i].params[1]);
+		if(!inputFormats[j].name)
+		{
+		    addError("Unknown input format %s",sp[i].params[0]);
+		}
+		else
+		    fileNames[fileCount]->fmt=inputFormats+j;
+		++fileCount;
+	    }
+	}
+	if(!chosenFormat)
+	{
+	    chosenFormat=outputFormats;
+	    diagnostic(DIAG_VERBOSE,"No output format specified, defaulting to %s\n",chosenFormat->name);
+	}
+	/* OK now we've processed system switches, and chosen output format */
+	/* check format-specific options */
+	for(i=0;sp[i].name;++i)
+	{
+	    /* skip system switches */
+	    for(j=0;systemSwitches[j].name;++j)
+	    {
+		if(!strcmp(sp[i].name,systemSwitches[j].name)) break;
+	    }
+	    if(systemSwitches[j].name) continue;
+	    if(!chosenFormat->switches)
+	    {
+		addError("Switch \"%s\" not valid for format %s",sp[i].name,chosenFormat->name);
+		continue;
+	    }
+	    
+	    for(j=0;chosenFormat->switches[j].name;++j)
+	    {
+		if(!strcmp(chosenFormat->switches[j].name,sp[i].name)) break;
+	    }
+	    if(!chosenFormat->switches[j].name)
+	    {
+		addError("Switch \"%s\" not valid for format %s",sp[i].name,chosenFormat->name);
+		continue;
+	    }
+	}
+    }
+    if(chosenFormat->initialise)
+    {
+	(*chosenFormat->initialise)(sp);
+    }
+}
+
+
+int main(int argc,char *argv[])
+{
+    UINT i;
+    PSEG a;
+    PFILE ofile;
+    PSWITCHPARAM sp;
+    PCHAR str;
+
+    diagnosticLevel=5; /* maximum diagnostics */
+
+    diagnostic(DIAG_VITAL,"ALINK v%i.%i alpha (C) Copyright 1998-2000 Anthony A.J. Williams.\n",ALINK_MAJOR,ALINK_MINOR);
+    diagnostic(DIAG_VITAL,"All Rights Reserved\n\n");
+
+    initialise();
+
+    if(argc>=1)
+    {
+	sp=processArgs(argc-1,argv+1,0,switchList,switchCount);
+    }
+    else
+    {
+	sp=NULL;
+    }
+    initFormat(sp);
+
+    if(!fileCount)
+    {
+	addError("No files specified");
+	goto prog_end;
     }
 
     if(!outname)
     {
-	outname=checkMalloc(strlen(filename[0])+1+4);
-	strcpy(outname,filename[0]);
+	outname=checkStrdup(fileNames[0]->file);
 	i=strlen(outname);
-	while((i>=0)&&(outname[i]!='.')&&(outname[i]!=PATH_CHAR)&&(outname[i]!=':'))
+	while((i>0)&&(outname[i]!='.')&&(!outname[i] || !strchr(PATHCHARS,outname[i])))
 	{
 	    i--;
 	}
@@ -1675,31 +755,32 @@ int main(int argc,char *argv[])
 	}
     }
     i=strlen(outname);
-    while((i>=0)&&(outname[i]!='.')&&(outname[i]!=PATH_CHAR)&&(outname[i]!=':'))
+    while((i>0)&&(outname[i]!='.')&&(!outname[i] ||!strchr(PATHCHARS,outname[i])))
     {
 	i--;
     }
     if(outname[i]!='.')
     {
-	switch(output_type)
+	if(chosenFormat->extension)
 	{
-	case OUTPUT_EXE:
-	case OUTPUT_PE:
-	    if(!buildDll)
-	    {
-		strcat(outname,".exe");
-	    }
-	    else
-	    {
-		strcat(outname,".dll");
-	    }
-	    break;
-	case OUTPUT_COM:
-	    strcat(outname,".com");
-	    break;
-	default:
-	    break;
+	    str=checkMalloc(strlen(outname)+1+strlen(chosenFormat->extension));
+	    strcpy(str,outname);
+	    outname=str;
+	    strcat(outname,chosenFormat->extension);
 	}
+    }
+    else
+    {
+	/* strip trailing dots */
+	if(i==(strlen(outname)-1))
+	{
+	    outname[i]=0;
+	}
+    }
+    if(!strlen(outname))
+    {
+	addError("Empty output filename");
+	goto prog_end;
     }
 
     if(mapfile)
@@ -1709,7 +790,7 @@ int main(int argc,char *argv[])
 	    mapname=checkMalloc(strlen(outname)+1+4);
 	    strcpy(mapname,outname);
 	    i=strlen(mapname);
-	    while((i>=0)&&(mapname[i]!='.')&&(mapname[i]!=PATH_CHAR)&&(mapname[i]!=':'))
+	    while((i>=0)&&(mapname[i]!='.')&&(!mapname[i] || !strchr(PATHCHARS,mapname[i])))
 	    {
 		i--;
 	    }
@@ -1729,111 +810,80 @@ int main(int argc,char *argv[])
 	}
     }
 
+    diagnostic(DIAG_VERBOSE,"Loading files\n");
+
     loadFiles();
 
-    if(!nummods)
-    {
-	printf("No required modules specified\n");
-	exit(1);
-    }
+    /* resolve externs before checking for required modules, in case entry point forces a load */
 
-    if(rescount && (output_type!=OUTPUT_PE))
-    {
-	printf("Cannot link resources into a non-PE application\n");
-	exit(1);
-    }
-
-    if(entryPoint)
-    {
-	if(!case_sensitive)
-	{
-	    strupr(entryPoint);
-	}
-	
-	if(gotstart)
-	{
-	    printf("Warning, overriding entry point from Command Line\n");
-	}
-	/* define an external reference for entry point */
-	externs=checkRealloc(externs,(extcount+1)*sizeof(EXTREC));
-	externs[extcount].name=entryPoint;
-	externs[extcount].typenum=-1;
-	externs[extcount].pubdef=NULL;
-	externs[extcount].flags=EXT_NOMATCH;
-	externs[extcount].modnum=0;
-
-	/* point start address to this external */
-	startaddr.ftype=REL_EXTDISP;
-	startaddr.frame=extcount;
-	startaddr.ttype=REL_EXTONLY;
-	startaddr.target=extcount;
-
-	extcount++;
-	gotstart=TRUE;
-    }
-
-    matchExterns();
-    printf("matched Externs\n");
+    resolveExterns();
     
-    matchComDefs();
-    printf("matched ComDefs\n");
-
-    for(i=0;i<expcount;i++)
+    if(!moduleCount)
     {
-	if(!expdefs[i].pubdef)
-	{
-	    printf("Unresolved export %s=%s\n",expdefs[i].exp_name,expdefs[i].int_name);
-	    errcount++;
-	}
-	else if(expdefs[i].pubdef->aliasName)
-	{
-	    printf("Unresolved export %s=%s, with alias %s\n",expdefs[i].exp_name,expdefs[i].int_name,expdefs[i].pubdef->aliasName);
-	    errcount++;
-	}
-	
+	addError("No required modules specified");
+	goto prog_end;
     }
 
-    for(i=0;i<extcount;i++)
+    emitCommonSymbols();
+
+    combineSegments();
+
+    diagnostic(DIAG_VERBOSE,"Output format %s\n",chosenFormat->name);
+
+    if(chosenFormat->finalise)
     {
-	if(externs[i].flags==EXT_NOMATCH)
+	diagnostic(DIAG_VERBOSE,"Finalising\n");
+	chosenFormat->finalise(outname);
+    }
+    else
+    {
+	a=createSection("Global",NULL,NULL,NULL,0,1);
+	a->addressspace=TRUE;
+	a->base=0;
+
+	for(i=0;i<globalSegCount;++i)
 	{
-	    printf("Unresolved external %s\n",externs[i].name);
-	    errcount++;
+	    if(!globalSegs[i]) continue;
+	    addSeg(a,globalSegs[i]);
+	    globalSegs[i]=NULL;
 	}
-	else if(externs[i].flags==EXT_MATCHEDPUBLIC)
+	spaceCount=1;
+	spaceList=checkMalloc(sizeof(PSEG));
+	spaceList[0]=a;
+	for(i=0;i<spaceCount;++i)
+	{	
+	    performFixups(spaceList[i]);
+	}
+    }
+
+    if(mapfile)
+	generateMap(mapname);
+    
+    for(i=0;i<spaceCount;++i)
+    {
+	checkSegment(spaceList[i]);
+    }
+
+    if(!errorCount)
+    {
+	diagnostic(DIAG_VERBOSE,"Writing %s\n",outname);
+
+	ofile=fopen(outname,"w+b");
+
+	if(!ofile)
 	{
-	    if(externs[i].pubdef->aliasName)
-	    {
-		printf("Unresolved external %s with alias %s\n",externs[i].name,externs[i].pubdef->aliasName);
-		errcount++;
-	    }
+	    addError("Unable to open output file %s",outname);
+	    goto prog_end;
 	}
-    }
+    
+	for(i=0;i<spaceCount;++i)
+	{
+	    writeSeg(ofile,spaceList[i]);
+	}
 
-    if(errcount!=0)
-    {
-	exit(1);
+	fclose(ofile);
     }
+ prog_end:
 
-    combineBlocks();
-    sortSegments();
-
-    if(mapfile) generateMap();
-    switch(output_type)
-    {
-    case OUTPUT_COM:
-	OutputCOMfile(outname);
-	break;
-    case OUTPUT_EXE:
-	OutputEXEfile(outname);
-	break;
-    case OUTPUT_PE:
-	OutputWin32file(outname);
-	break;
-    default:
-	printf("Invalid output type\n");
-	exit(1);
-	break;
-    }
-    return 0;
+    return errorCount?1:0;
 }

@@ -1,524 +1,332 @@
 #include "alink.h"
 
-void fixpubsegs(int src,int dest,UINT shift)
+static void reorderGroups(void)
 {
     UINT i,j;
-    PPUBLIC q;
+    PSEG grp;
+    UINT contentCount;
+    PCONTENT contentList;
     
-    for(i=0;i<pubcount;++i)
+    for(i=0;i<globalSegCount;++i)
     {
-	for(j=0;j<publics[i].count;++j)
+	if(!globalSegs[i]) continue;
+	if(!globalSegs[i]->group) continue;
+	grp=globalSegs[i];
+	contentCount=grp->contentCount;
+	contentList=grp->contentList;
+	grp->contentCount=0;
+	grp->contentList=NULL;
+	grp->length=0;
+
+	/* first add all group headers */
+	for(j=0;j<contentCount;++j)
 	{
-	    q=(PPUBLIC)publics[i].object[j];
-	    if(q->segnum==src)
-	    {
-		q->segnum=dest;
-		q->ofs+=shift;
-	    }
+	    if(contentList[j].seg->group)
+		addSeg(grp,contentList[j].seg);
+	}
+	/* next add all segments with content */
+	for(j=0;j<contentCount;++j)
+	{
+	    if(contentList[j].seg->group) continue;
+	    if(getInitLength(contentList[j].seg))
+		addSeg(grp,contentList[j].seg);
+	}
+	/* finally add all segments without content */
+	for(j=0;j<contentCount;++j)
+	{
+	    if(contentList[j].seg->group) continue;
+	    if(!getInitLength(contentList[j].seg))
+		addSeg(grp,contentList[j].seg);
 	}
     }
 }
 
-void fixpubgrps(int src,int dest)
+
+static void combineGroups(void)
 {
-    UINT i,j;
-    PPUBLIC q;
-    
-    for(i=0;i<pubcount;++i)
-    {
-	for(j=0;j<publics[i].count;++j)
-	{
-	    q=(PPUBLIC)publics[i].object[j];
-	    if(q->grpnum==src)
-	    {
-		q->grpnum=dest;
-	    }
-	}
-    }
-}
+    UINT i,j,k,l;
+    PSEG mgrp,s;
 
-void combine_segments(long dest,long src)
-{
-    UINT k,n;
-    PUCHAR p,q;
-    long a1,a2;
+    diagnostic(DIAG_VERBOSE,"Combining Groups");
 
-    k=seglist[dest]->length;
-    switch(seglist[src]->attr&SEG_ALIGN)
+    for(i=0;i<globalSegCount;++i)
     {
-    case SEG_WORD:
-	a2=2;
-	k=(k+1)&0xfffffffe;
-	break;
-    case SEG_PARA:
-	a2=16;
-	k=(k+0xf)&0xfffffff0;
-	break;
-    case SEG_PAGE:
-	a2=0x100;
-	k=(k+0xff)&0xffffff00;
-	break;
-    case SEG_DWORD:
-	a2=4;
-	k=(k+3)&0xfffffffc;
-	break;
-    case SEG_MEMPAGE:
-	a2=0x1000;
-	k=(k+0xfff)&0xfffff000;
-	break;
-    case SEG_8BYTE:
-	a2=8;
-	k=(k+7)&0xfffffff8;
-	break;
-    case SEG_32BYTE:
-	a2=32;
-	k=(k+31)&0xffffffe0;
-	break;
-    case SEG_64BYTE:
-	a2=64;
-	k=(k+63)&0xffffffc0;
-	break;
-    default:
-	a2=1;
-	break;
-    }
-    switch(seglist[dest]->attr&SEG_ALIGN)
-    {
-    case SEG_WORD:
-	a1=2;
-	break;
-    case SEG_DWORD:
-	a1=4;
-	break;
-    case SEG_8BYTE:
-	a1=8;
-	break;
-    case SEG_PARA:
-	a1=16;
-	break;
-    case SEG_32BYTE:
-	a1=32;
-	break;
-    case SEG_64BYTE:
-	a1=64;
-	break;
-    case SEG_PAGE:
-	a1=0x100;
-	break;
-    case SEG_MEMPAGE:
-	a1=0x1000;
-	break;
-    default:
-	a1=1;
-	break;
-    }
-    seglist[src]->base=k;
-    p=checkMalloc(k+seglist[src]->length);
-    q=checkMalloc((k+seglist[src]->length+7)/8);
-    for(k=0;k<seglist[dest]->length;k++)
-    {
-	if(GetNbit(seglist[dest]->datmask,k))
-	{
-	    SetNbit(q,k);
-	    p[k]=seglist[dest]->data[k];
-	}
-	else
-	{
-	    ClearNbit(q,k);
-	}
-    }
-    for(;k<seglist[src]->base;k++)
-    {
-	ClearNbit(q,k);
-    }
-    for(;k<(seglist[src]->base+seglist[src]->length);k++)
-    {
-	if(GetNbit(seglist[src]->datmask,k-seglist[src]->base))
-	{
-	    p[k]=seglist[src]->data[k-seglist[src]->base];
-	    SetNbit(q,k);
-	}
-	else
-	{
-	    ClearNbit(q,k);
-	}
-    }
-    seglist[dest]->length=k;
-    if(a2>a1) seglist[dest]->attr=seglist[src]->attr;
-    seglist[dest]->winFlags |= seglist[src]->winFlags;
-    free(seglist[dest]->data);
-    free(seglist[src]->data);
-    free(seglist[dest]->datmask);
-    free(seglist[src]->datmask);
-    seglist[dest]->data=p;
-    seglist[dest]->datmask=q;
+	if(!globalSegs[i]) continue; /* skip if entry in global seg list is empty */
+	if(!globalSegs[i]->group) continue; /* skip if not a group */
 
-    fixpubsegs(src,dest,seglist[src]->base);
-    
-    for(k=0;k<fixcount;k++)
-    {
-	if(relocs[k]->segnum==src)
+	mgrp=NULL; /* no master group yet */
+	
+	for(j=i+1;j<globalSegCount;++j)
 	{
-	    relocs[k]->segnum=dest;
-	    relocs[k]->ofs+=seglist[src]->base;
-	}
-	if(relocs[k]->ttype==REL_SEGDISP)
-	{
-	    if(relocs[k]->target==src)
+	    /* search for another group */
+	    if(!globalSegs[j]) continue;
+	    if(!globalSegs[j]->group) continue;
+	    /* OK we've found another group. Check name */
+	    if(strcmp(globalSegs[i]->name,globalSegs[j]->name)) continue; /* skip if no match */
+	    /* same name. Create master group if not already one */
+	    if(!mgrp)
 	    {
-		relocs[k]->target=dest;
-		relocs[k]->disp+=seglist[src]->base;
+		mgrp=createDuplicateSection(globalSegs[i]);
+		mgrp->mod=NULL;
+		mgrp->group=TRUE;
+		mgrp->parent=globalSegs[i]->parent;
+		mgrp->base=globalSegs[i]->base;
+		addSeg(mgrp,globalSegs[i]); /* add original to master */
+		globalSegs[i]=mgrp; /* replace original group with master in list */
 	    }
+	    addSeg(mgrp,globalSegs[j]); /* add second, third, etc. group to master */
+	    globalSegs[j]=NULL; /* and remove from list */
 	}
-	else if(relocs[k]->ttype==REL_SEGONLY)
-	{
-	    if(relocs[k]->target==src)
-	    {
-		relocs[k]->target=dest;
-		relocs[k]->ttype=REL_SEGDISP;
-		relocs[k]->disp=seglist[src]->base;
-	    }
-	}
-	if((relocs[k]->ftype==REL_SEGFRAME) ||
-	   (relocs[k]->ftype==REL_LILEFRAME))
-	{
-	    if(relocs[k]->frame==src)
-	    {
-		relocs[k]->frame=dest;
-	    }
-	}
-    }
 
-    if(gotstart)
-    {
-	if(startaddr.ttype==REL_SEGDISP)
+	if(mgrp)
 	{
-	    if(startaddr.target==src)
+	    /* OK, so we got a master group. Now move segments out of sub-groups, and into master */
+	    mgrp->length=0; /* no length for master yet */
+	    l=mgrp->contentCount; /* get number of sub-groups */
+	    	    
+	    for(j=0;j<l;++j)
 	    {
-		startaddr.target=dest;
-		startaddr.disp+=seglist[src]->base;
-	    }
-	}
-	else if(startaddr.ttype==REL_SEGONLY)
-	{
-	    if(startaddr.target==src)
-	    {
-		startaddr.target=dest;
-		startaddr.disp=seglist[src]->base;
-		startaddr.ttype=REL_SEGDISP;
-	    }
-	}
-	if((startaddr.ftype==REL_SEGFRAME) ||
-	   (startaddr.ftype==REL_LILEFRAME))
-	{
-	    if(startaddr.frame==src)
-	    {
-		startaddr.frame=dest;
-	    }
-	}
-    }
-
-    for(k=0;k<grpcount;k++)
-    {
-	if(grplist[k])
-	{
-	    for(n=0;n<grplist[k]->numsegs;n++)
-	    {
-		if(grplist[k]->segindex[n]==src)
+		s=mgrp->contentList[j].seg;
+		s->base=0; /* all sub-groups go at beginning */
+		s->length=0; /* and have no length */
+		
+		/* add all entries from subgroup to main group */
+		for(k=0;k<s->contentCount;++k)
 		{
-		    grplist[k]->segindex[n]=dest;
+		    addSeg(mgrp,s->contentList[k].seg);
+		}
+		/* remove subgroup list of entries */
+		checkFree(s->contentList);
+		s->contentList=NULL;
+		s->contentCount=0;
+	    }
+	}
+    }
+    
+}
+
+BOOL combineSegments(void)
+{
+    UINT i,j,k,l;
+    PSEG sa,sb,mseg,ga,gb;
+
+    /* remove segments marked for discard */
+    for(i=0;i<globalSegCount;++i)
+    {
+	if(!globalSegs[i]) continue;
+	if(globalSegs[i]->discard)
+	{
+	    globalSegs[i]=NULL;
+	}
+    }
+
+    /* ensure groups are combined first, as it makes things easier */
+    combineGroups();
+
+    /* combine grouped segs with non-grouped segs */
+    /* and warn if match other grouped segs */
+    for(i=0;i<globalSegCount;++i)
+    {
+	if(!globalSegs[i]) continue; /* skip empty entries */
+	if(!globalSegs[i]->group) continue; /* skip all but groups */
+	ga=globalSegs[i];
+	for(k=0;k<ga->contentCount;++k)
+	{
+	    sa=ga->contentList[k].seg; /* get included seg */
+	    if(sa->group) continue; /* skip included groups */
+	    mseg=NULL;
+
+	    for(l=k+1;l<ga->contentCount;++l)
+	    {
+		sb=ga->contentList[l].seg;
+		if(sb->group) continue; /* skip included groups */
+		if(sb->combine != sa->combine) continue; /* skip if don't combine the same way */
+		/* if "STACK" segments then combine, otherwise check names */
+		if(sa->combine!=SEGF_STACK)
+		{
+		    if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+		       || (sa->name && !sb->name) || (!sa->name && sb->name)
+		       ) continue; /* skip if names don't match */
+		    if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
+		       || (sa->class && !sb->class) || (!sa->class && sb->class)
+		       ) continue; /* skip if classes don't match */
+		    if((sa->combine==SEGF_PRIVATE) && ((sa->mod!=sb->mod) || !sa->mod))
+			continue; /* skip if private segs from different modules, or global */
+		}
+		
+		/* we now have a match within the same group */
+		/* same name+class. Create master seg if not already one */
+		if(!mseg)
+		{
+		    mseg=createDuplicateSection(sa);
+		    mseg->mod=NULL;
+		    mseg->parent=sa->parent;
+		    mseg->base=sa->base;
+		    ga->contentList[k].seg=mseg; /* replace original group with master in list */
+		    if(sa->combine==SEGF_COMMON)
+		    {
+			addCommonSeg(mseg,sa);
+		    }
+		    else
+		    {
+			addSeg(mseg,sa); /* add original to master */
+		    }
+		}
+		removeContent(ga,l); /* remove from list */
+		if(sb->combine==SEGF_COMMON)
+		{
+		    addCommonSeg(mseg,sb);
+		}
+		else
+		{
+		    addSeg(mseg,sb); /* add second, third, etc. group to master */
+		}
+		--l; /* next check has same index */
+	    }
+	    
+	    
+	    for(j=0;j<globalSegCount;++j)
+	    {
+		if(j==i) continue; /* don't process the same entry against itself */
+		if(!globalSegs[j]) continue;
+		if(globalSegs[j]->group)
+		{
+		    if(j<i) continue; /* don't repeat a comparison already made */
+		    
+		    /* seg is a group, so check contents */
+		    gb=globalSegs[j];
+		    for(l=0;l<gb->contentCount;++l)
+		    {
+			sb=gb->contentList[l].seg; /* get included seg */
+			if(sb->group) continue; /* skip included groups */
+			if(sb->combine != sa->combine) continue; /* skip if don't combine the same way */
+			if(sa->combine==SEGF_STACK)
+			{
+			    addError("Explicit stack part of group %s and %s\n",
+				   ga->name,gb->name);
+			    return FALSE;
+			}
+			
+			if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+			   || (sa->name && !sb->name) || (!sa->name && sb->name)
+			   ) continue; /* skip if names don't match */
+			if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
+			   || (sa->class && !sb->class) || (!sa->class && sb->class)
+			   ) continue; /* skip if classes don't match */
+			if((sa->combine==SEGF_PRIVATE) && ((sa->mod!=sb->mod) || !sa->mod))
+			    continue; /* skip if private segs from different modules, or global */
+			diagnostic(DIAG_BASIC,"Warning, segment %s is a member of groups %s and %s\n",
+				   sa->name?sa->name:"",
+				   ga->name?ga->name:"",
+				   gb->name?gb->name:"");
+		    }
+		}
+		else
+		{
+		    sb=globalSegs[j]; /* get next seg */
+		    if(sb->combine != sa->combine) continue; /* skip if don't combine the same way */
+		    /* if "STACK" segments then combine, otherwise check names */
+		    if(sa->combine!=SEGF_STACK)
+		    {
+			if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+			   || (sa->name && !sb->name) || (!sa->name && sb->name)
+			   ) continue; /* skip if names don't match */
+			if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
+			   || (sa->class && !sb->class) || (!sa->class && sb->class)
+			   ) continue; /* skip if classes don't match */
+			if((sa->combine==SEGF_PRIVATE) && ((sa->mod!=sb->mod) || !sa->mod))
+			    continue; /* skip if private segs from different modules, or global */
+		    }
+		    
+		    /* same name+class. Create master seg if not already one */
+		    if(!mseg)
+		    {
+			mseg=createDuplicateSection(sa);
+			mseg->mod=NULL;
+			mseg->parent=sa->parent;
+			mseg->base=sa->base;
+			ga->contentList[k].seg=mseg; /* replace original group with master in list */
+			if(sa->combine==SEGF_COMMON)
+			{
+			    addCommonSeg(mseg,sa);
+			}
+			else
+			{
+			    addSeg(mseg,sa); /* add original to master */
+			}
+		    }
+		    if(sb->combine==SEGF_COMMON)
+		    {
+			addCommonSeg(mseg,sb);
+		    }
+		    else
+		    {
+			addSeg(mseg,sb); /* add second, third, etc. group to master */
+		    }
+		    globalSegs[j]=NULL; /* and remove from list */
 		}
 	    }
+	    
 	}
+	
     }
-
-    free(seglist[src]);
-    seglist[src]=0;
-}
-
-void combine_common(long i,long j)
-{
-    UINT k,n;
-    PUCHAR p,q;
-
-    if(seglist[j]->length>seglist[i]->length)
+    /* now combine non-grouped segments */
+    for(i=0;i<globalSegCount;++i)
     {
-	k=seglist[i]->length;
-	seglist[i]->length=seglist[j]->length;
-	seglist[j]->length=k;
-	p=seglist[i]->data;
-	q=seglist[i]->datmask;
-	seglist[i]->data=seglist[j]->data;
-	seglist[i]->datmask=seglist[j]->datmask;
-    }
-    else
-    {
-	p=seglist[j]->data;
-	q=seglist[j]->datmask;
-    }
-    for(k=0;k<seglist[j]->length;k++)
-    {
-	if(GetNbit(q,k))
+	if(!globalSegs[i]) continue; /* skip empty entries */
+	if(globalSegs[i]->group) continue; /* skip groups */
+	sa=globalSegs[i];
+	mseg=NULL;
+	
+	for(j=i+1;j<globalSegCount;++j)
 	{
-	    if(GetNbit(seglist[i]->datmask,k))
+	    if(!globalSegs[j]) continue;
+	    if(globalSegs[j]->group) continue;
+	    sb=globalSegs[j]; /* get next seg */
+	    if(sb->combine != sa->combine) continue; /* skip if don't combine the same way */
+	    /* if "STACK" segments then combine, otherwise check names */
+	    if(sa->combine!=SEGF_STACK)
 	    {
-		if(seglist[i]->data[k]!=p[k])
+		if((sa->name && sb->name && strcmp(sa->name,sb->name)) 
+		   || (sa->name && !sb->name) || (!sa->name && sb->name)
+		   ) continue; /* skip if names don't match */
+		if((sa->class && sb->class && strcmp(sa->class,sb->class)) 
+		   || (sa->class && !sb->class) || (!sa->class && sb->class)
+		   ) continue; /* skip if classes don't match */
+		if((sa->combine==SEGF_PRIVATE) && ((sa->mod!=sb->mod) || !sa->mod))
+		    continue; /* skip if private segs from different modules, or global */
+	    }
+	    
+	    /* same name+class. Create master seg if not already one */
+	    if(!mseg)
+	    {
+		mseg=createDuplicateSection(sa);
+		mseg->mod=NULL;
+		mseg->parent=sa->parent;
+		mseg->base=sa->base;
+		globalSegs[i]=mseg; /* replace original group with master in list */
+		if(sa->combine==SEGF_COMMON)
 		{
-		    ReportError(ERR_OVERWRITE);
+		    addCommonSeg(mseg,sa);
 		}
+		else
+		{
+		    addSeg(mseg,sa); /* add original to master */
+		}
+	    }
+	    if(sb->combine==SEGF_COMMON)
+	    {
+		addCommonSeg(mseg,sb);
 	    }
 	    else
 	    {
-		SetNbit(seglist[i]->datmask,k);
-		seglist[i]->data[k]=p[k];
+		addSeg(mseg,sb); /* add second, third, etc. group to master */
 	    }
+	    globalSegs[j]=NULL; /* and remove from list */
 	}
-    }
-    free(p);
-    free(q);
-
-    fixpubsegs(j,i,0);
-    
-    for(k=0;k<fixcount;k++)
-    {
-	if(relocs[k]->segnum==j)
-	{
-	    relocs[k]->segnum=i;
-	}
-	if(relocs[k]->ttype==REL_SEGDISP)
-	{
-	    if(relocs[k]->target==j)
-	    {
-		relocs[k]->target=i;
-	    }
-	}
-	else if(relocs[k]->ttype==REL_SEGONLY)
-	{
-	    if(relocs[k]->target==j)
-	    {
-		relocs[k]->target=i;
-	    }
-	}
-	if((relocs[k]->ftype==REL_SEGFRAME) ||
-	   (relocs[k]->ftype==REL_LILEFRAME))
-	{
-	    if(relocs[k]->frame==j)
-	    {
-		relocs[k]->frame=i;
-	    }
-	}
+	
     }
 
-    if(gotstart)
-    {
-	if(startaddr.ttype==REL_SEGDISP)
-	{
-	    if(startaddr.target==j)
-	    {
-		startaddr.target=i;
-	    }
-	}
-	else if(startaddr.ttype==REL_SEGONLY)
-	{
-	    if(startaddr.target==j)
-	    {
-		startaddr.target=i;
-	    }
-	}
-	if((startaddr.ftype==REL_SEGFRAME) ||
-	   (startaddr.ftype==REL_LILEFRAME))
-	{
-	    if(startaddr.frame==j)
-	    {
-		startaddr.frame=i;
-	    }
-	}
-    }
-
-    for(k=0;k<grpcount;k++)
-    {
-	if(grplist[k])
-	{
-	    for(n=0;n<grplist[k]->numsegs;n++)
-	    {
-		if(grplist[k]->segindex[n]==j)
-		{
-		    grplist[k]->segindex[n]=i;
-		}
-	    }
-	}
-    }
-
-    free(seglist[j]);
-    seglist[j]=0;
+    reorderGroups();
+    return TRUE;
 }
-
-void combine_groups(long i,long j)
-{
-    long n,m;
-    char match;
-
-    for(n=0;n<grplist[j]->numsegs;n++)
-    {
-	match=0;
-	for(m=0;m<grplist[i]->numsegs;m++)
-	{
-	    if(grplist[j]->segindex[n]==grplist[i]->segindex[m])
-	    {
-		match=1;
-	    }
-	}
-	if(!match)
-	{
-	    grplist[i]->numsegs++;
-	    grplist[i]->segindex[grplist[i]->numsegs]=grplist[j]->segindex[n];
-	}
-    }
-    free(grplist[j]);
-    grplist[j]=0;
-
-    fixpubgrps(j,i);
-
-    for(n=0;n<fixcount;n++)
-    {
-	if(relocs[n]->ftype==REL_GRPFRAME)
-	{
-	    if(relocs[n]->frame==j)
-	    {
-		relocs[n]->frame=i;
-	    }
-	}
-	if((relocs[n]->ttype==REL_GRPONLY) || (relocs[n]->ttype==REL_GRPDISP))
-	{
-	    if(relocs[n]->target==j)
-	    {
-		relocs[n]->target=i;
-	    }
-	}
-    }
-
-    if(gotstart)
-    {
-	if((startaddr.ttype==REL_GRPDISP) || (startaddr.ttype==REL_GRPONLY))
-	{
-	    if(startaddr.target==j)
-	    {
-		startaddr.target=i;
-	    }
-	}
-	if(startaddr.ftype==REL_GRPFRAME)
-	{
-	    if(startaddr.frame==j)
-	    {
-		startaddr.frame=i;
-	    }
-	}
-    }
-}
-
-void combineBlocks()
-{
-    long i,j,k;
-    char *name;
-    long attr;
-    UINT count;
-    UINT *slist;
-    UINT curseg;
-
-    for(i=0;i<segcount;i++)
-    {
-	if(seglist[i]&&((seglist[i]->attr&SEG_ALIGN)!=SEG_ABS))
-	{
-	    if(seglist[i]->winFlags & WINF_COMDAT) continue; /* don't combine COMDAT segments */
-	    name=namelist[seglist[i]->nameindex];
-	    attr=seglist[i]->attr&(SEG_COMBINE|SEG_USE32);
-	    switch(attr&SEG_COMBINE)
-	    {
-	    case SEG_STACK:
-		for(j=i+1;j<segcount;j++)
-		{
-		    if(!seglist[j]) continue;
-		    if(seglist[j]->winFlags & WINF_COMDAT) continue;
-		    if((seglist[j]->attr&SEG_ALIGN)==SEG_ABS) continue;
-		    if((seglist[j]->attr&SEG_COMBINE)!=SEG_STACK) continue;
-		    combine_segments(i,j);
-		}
-		break;
-	    case SEG_PUBLIC:
-	    case SEG_PUBLIC2:
-	    case SEG_PUBLIC3:
-		slist=(UINT*)checkMalloc(sizeof(UINT));
-		slist[0]=i;
-		/* get list of segments to combine */
-		for(j=i+1,count=1;j<segcount;j++)
-		{
-		    if(!seglist[j]) continue;
-		    if(seglist[j]->winFlags & WINF_COMDAT) continue;
-		    if((seglist[j]->attr&SEG_ALIGN)==SEG_ABS) continue;
-		    if(attr!=(seglist[j]->attr&(SEG_COMBINE|SEG_USE32))) continue;
-		    if(strcmp(name,namelist[seglist[j]->nameindex])!=0) continue;
-		    slist=(UINT*)checkRealloc(slist,(count+1)*sizeof(UINT));
-		    slist[count]=j;
-		    count++;
-		}
-		/* sort them by sortorder */
-		for(j=1;j<count;j++)
-		{
-		    curseg=slist[j];
-		    for(k=j-1;k>=0;k--)
-		    {
-			if(seglist[slist[k]]->orderindex<0) break;
-			if(seglist[curseg]->orderindex>=0)
-			{
-			    if(strcmp(namelist[seglist[curseg]->orderindex],
-				      namelist[seglist[slist[k]]->orderindex])>=0) break;
-			}
-			slist[k+1]=slist[k];
-		    }
-		    k++;
-		    slist[k]=curseg;
-		}
-		/* then combine in that order */
-		for(j=1;j<count;j++)
-		{
-		    combine_segments(i,slist[j]);
-		}
-		free(slist);
-		break;
-	    case SEG_COMMON:
-		for(j=i+1;j<segcount;j++)
-		{
-		    if((seglist[j]&&((seglist[j]->attr&SEG_ALIGN)!=SEG_ABS)) &&
-		       ((seglist[i]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32))==(seglist[j]->attr&(SEG_ALIGN|SEG_COMBINE|SEG_USE32)))
-		       &&
-		       (strcmp(name,namelist[seglist[j]->nameindex])==0)
-		       && !(seglist[j]->winFlags & WINF_COMDAT)
-		       )
-		    {
-			combine_common(i,j);
-		    }
-		}
-		break;
-	    default:
-		break;
-	    }
-	}
-    }
-
-    for(i=0;i<grpcount;i++)
-    {
-	if(grplist[i])
-	{
-	    for(j=i+1;j<grpcount;j++)
-	    {
-		if(!grplist[j]) continue;
-		if(strcmp(namelist[grplist[i]->nameindex],namelist[grplist[j]->nameindex])==0)
-		{
-		    combine_groups(i,j);
-		}
-	    }
-	}
-    }
-}
-
-

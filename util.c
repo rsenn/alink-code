@@ -27,108 +27,6 @@ char GetNbit(PUCHAR mask,long i)
     return (mask[i/8]>>(i%8))&1;
 }
 
-long GetIndex(PUCHAR buf,long *index)
-{
-    long i;
-    if(buf[*index]&0x80)
-    {
-	i=((buf[*index]&0x7f)*256)+buf[(*index)+1];
-	(*index)+=2;
-	return i;
-    }
-    else
-    {
-	return buf[(*index)++];
-    }
-}
-
-void ReportError(long errnum)
-{
-    UINT tot,i;
-    
-    printf("\nError in file at %08lX",filepos);
-    switch(errnum)
-    {
-    case ERR_EXTRA_DATA:
-	printf(" - extra data in record\n");
-	break;
-    case ERR_NO_HEADER:
-	printf(" - no header record\n");
-	break;
-    case ERR_NO_RECDATA:
-	printf(" - record data not present\n");
-	break;
-    case ERR_NO_MEM:
-	printf(" - insufficient memory\n");
-	break;
-    case ERR_INV_DATA:
-	printf(" - invalid data address\n");
-	break;
-    case ERR_INV_SEG:
-	printf(" - invalid segment number\n");
-	break;
-    case ERR_BAD_FIXUP:
-	printf(" - invalid fixup record\n");
-	break;
-    case ERR_BAD_SEGDEF:
-	printf(" - invalid segment definition record\n");
-	break;
-    case ERR_ABS_SEG:
-	printf(" - data emitted to absolute segment\n");
-	break;
-    case ERR_DUP_PUBLIC:
-	printf(" - duplicate public definition\n");
-	break;
-    case ERR_NO_MODEND:
-	printf(" - unexpected end of file (no MODEND record)\n");
-	break;
-    case ERR_EXTRA_HEADER:
-	printf(" - duplicate module header\n");
-	break;
-    case ERR_UNKNOWN_RECTYPE:
-	printf(" - unknown object module record type %02X\n",rectype);
-	break;
-    case ERR_SEG_TOO_LARGE:
-	printf(" - 4Gb Non-Absolute segments not supported.\n");
-	break;
-    case ERR_MULTIPLE_STARTS:
-	printf(" - start address defined in more than one module.\n");
-	break;
-    case ERR_BAD_GRPDEF:
-	printf(" - illegal group definition\n");
-	break;
-    case ERR_OVERWRITE:
-	printf(" - overlapping data regions\n");
-	break;
-    case ERR_INVALID_COMENT:
-	printf(" - COMENT record format invalid\n");
-	break;
-    case ERR_ILLEGAL_IMPORTS:
-	printf(" - Imports required to link, and not supported by output file type\n");
-	break;
-    default:
-	printf("\n");
-    }
-    printf("name count = %i\n",namecount);
-    printf("seg count = %i\n",segcount);
-    printf("extcount=%i\n",extcount);
-    printf("grpcount=%i\n",grpcount);
-    printf("comcount=%i\n",comcount);
-    printf("fixcount=%i\n",fixcount);
-    printf("impcount=%i\n",impcount);
-    printf("expcount=%i\n",expcount);
-    printf("modcount=%i\n",nummods);
-
-    for(i=0,tot=0;i<segcount;i++)
-    {
-	if(seglist[i] && seglist[i]->data)
-	    tot+=seglist[i]->length;
-    }
-    printf("total segment size=%08X\n",tot);
-		
-    exit(1);
-}
-
 unsigned short wtoupper(unsigned short a)
 {
     if(a>=256) return a;
@@ -160,7 +58,7 @@ int wstrlen(const char *s)
 
 int sortCompare(const void *x1,const void *x2)
 {
-    return strcmp(((PSORTENTRY) x1)->id,((PSORTENTRY)x2)->id);
+    return strcmp(((PSYMBOL) x1)->name,((PSYMBOL)x2)->name);
 }
 
 void *checkMalloc(size_t x)
@@ -190,12 +88,9 @@ void *checkRealloc(void *p,size_t x)
 char *checkStrdup(const char *s)
 {
     char *p;
-    
-    if(!s)
-    {
-	fprintf(stderr,"Error, Taking duplicate of NULL pointer in call to strdup\n");
-	exit(1);
-    }
+
+    if(!s) return NULL;
+
     p=strdup(s);
     if(!p)
     {
@@ -205,97 +100,137 @@ char *checkStrdup(const char *s)
     return p;
 }
 
-
-PSORTENTRY binarySearch(PSORTENTRY list,UINT count,char *key)
+void checkFree(void *p)
 {
-    UINT i;
-    int j;
-    
-    if(!list) return NULL;
-    if(!count) return NULL;
-    if(!key) return NULL;
-
-    while(count)
-    {
-	i=count/2; /* get mid point */
-	j=strcmp(key,list[i].id); /* compare */
-	if(!j) return list+i; /* return match if found */
-	if(j<0) /* if key is less than current id */
-	{
-	    count=i; /* only search those before current node */
-	}
-	else /* key is greater than current id */
-	{
-	    list+=i+1; /* start search at next node */
-	    count-=(i+1); /* count of those remaining after current node */
-	}
-    }
-    
-    return NULL; /* return NULL if no match (count=0) */
+    if(!p) return;
+    free(p);
 }
 
-void sortedInsert(PSORTENTRY *plist,UINT *pcount,char *key,void *object)
+
+
+
+BOOL getStub(PCHAR stubName,PUCHAR *pstubData,UINT *pstubSize)
 {
-    PSORTENTRY list,node;
-    UINT count,index,i;
-    int j;
-   
-    if(!plist || !pcount) return;
-    
-    count=*pcount;
-    list=*plist;
+    FILE *f;
+    unsigned char headbuf[EXE_HEADERSIZE];
+    PUCHAR buf;
+    UINT imageSize;
+    UINT headerSize;
+    UINT relocSize;
+    UINT relocStart;
+    int i;
 
-    node=binarySearch(list,count,key);
-    if(node) /* if ID already exists, add object to it */
+    if(stubName)
     {
-	node->object=(void**)checkRealloc(node->object,(node->count+1)*sizeof(void*));
-	node->object[node->count]=object;
-	++(node->count);
-	return;
+        f=fopen(stubName,"rb");
+        if(!f)
+        {
+            addError("Unable to open stub file %s",stubName);
+            return FALSE;
+        }
+	/* try and read EXE header */
+        if(fread(headbuf,1,EXE_HEADERSIZE,f)!=EXE_HEADERSIZE)
+        {
+            addError("Error reading from file %s",stubName);
+            return FALSE;
+        }
+        if((headbuf[EXE_SIGNATURE]!=0x4d) || (headbuf[EXE_SIGNATURE+1]!=0x5a))
+        {
+            addError("Stub not valid EXE file");
+            return FALSE;
+        }
+        /* get size of image */
+        imageSize=headbuf[EXE_NUMBYTES]+(headbuf[EXE_NUMBYTES+1]<<8)+
+	    ((headbuf[EXE_NUMPAGES]+(headbuf[EXE_NUMPAGES+1]<<8))<<9);
+        if(imageSize%512) imageSize-=512;
+        headerSize=(headbuf[EXE_HEADSIZE]+(headbuf[EXE_HEADSIZE+1]<<8))<<4;
+        relocSize=(headbuf[EXE_RELCOUNT]+(headbuf[EXE_RELCOUNT+1]<<8))<<2;
+        imageSize-=headerSize;
+
+        /* allocate buffer for load image */
+        buf=(PUCHAR)checkMalloc(imageSize+0x40+((relocSize+0xf)&0xfffffff0));
+        /* copy header */
+        for(i=0;i<EXE_HEADERSIZE;i++) buf[i]=headbuf[i];
+
+        relocStart=headbuf[EXE_RELOCPOS]+(headbuf[EXE_RELOCPOS+1]<<8);
+        /* load relocs */
+        fseek(f,relocStart,SEEK_SET);
+
+	if(relocSize)
+	{
+	    if(fread(buf+0x40,1,relocSize,f)!=relocSize)
+	    {
+		addError("Error reading from file %s",stubName);
+		return FALSE;
+	    }
+	    /* paragraph align reloc size */
+	    relocSize+=0xf;
+	    relocSize&=0xfffffff0;
+
+	}
+
+	if(relocSize || (imageSize>0x1c))
+	{
+	    /* new header is 4 paragraphs long + relocSize*/
+	    relocSize>>=4;
+	    relocSize+=4;
+	}
+	else
+	{
+	    /* no relocs, and short data */
+	    relocSize=EXE_HEADERSIZE>>4; /* min header size */
+	}
+
+        buf[EXE_HEADSIZE]=relocSize&0xff;
+        buf[EXE_HEADSIZE+1]=(relocSize>>8)&0xff;
+        /* move to start of data */
+        fseek(f,headerSize,SEEK_SET);
+        headerSize=relocSize<<4;
+        /* load data into correct position */
+        if(fread(buf+headerSize,1,imageSize,f)!=imageSize)
+        {
+            addError("Error reading from file %s",stubName);
+            return FALSE;
+        }
+        /* relocations start at 0x40 */
+        buf[EXE_RELOCPOS]=0x40;
+        buf[EXE_RELOCPOS+1]=0;
+        imageSize+=headerSize; /* total file size */
+        /* store pointer and size */
+        (*pstubData)=buf;
+	if(imageSize>0x40)
+	{
+	    (*pstubSize)=imageSize;
+	}
+	else
+	{
+	    (*pstubSize)=0x40;
+	}
+
+        i=imageSize%512; /* size mod 512 */
+        imageSize=(imageSize+511)>>9; /* number of 512-byte pages */
+        buf[EXE_NUMBYTES]=i&0xff;
+        buf[EXE_NUMBYTES+1]=(i>>8)&0xff;
+        buf[EXE_NUMPAGES]=imageSize&0xff;
+        buf[EXE_NUMPAGES+1]=(imageSize>>8)&0xff;
     }
-    
-    /* new node, insert into list */
-    /* find index to insert at */
-    index=0;
-    while(count)
+    else
     {
-	i=count/2;
-	j=strcmp(key,list[index+i].id); /* compare */
-	if(!j) /* match !! */
-	{
-	    printf("Something odd is happening\n");
-	    exit(1);
-	}
-	
-	if(j<0) /* if key is less than current id */
-	{
-	    count=i; /* only search those before current node */
-	}
-	else /* key is greater than current id */
-	{
-	    index+=i+1; /* start search at next node */
-	    count-=(i+1); /* count of those remaining after current node */
-	}
-	
+        (*pstubData)=NULL;
+        (*pstubSize)=0;
     }
-    /* grow list */
-    count=*pcount+1;
-    
-    list=(PSORTENTRY)checkRealloc(list,sizeof(SORTENTRY)*count);
-
-    j=count-index-1; /* get number of entries after insertion index */
-    if(j) /* move them up 1 entry if some */
-    {
-	memmove(list+index+1,list+index,j*sizeof(SORTENTRY));
-    }
-
-    /* put new node in position */
-    list[index].id=checkStrdup(key);
-    list[index].object=(void**)checkMalloc(sizeof(void*));
-    list[index].object[0]=object;
-    list[index].count=1;
-
-    *pcount=count;
-    *plist=list;
+    return TRUE;
 }
 
+/* define strupr if not otherwise defined */
+#ifndef GOT_STRUPR
+
+char *strupr(char *s)
+{
+    char *s1=s;
+    if(!s) return NULL;
+    for(;*s=toupper(*s);++s);
+    return s1;
+}
+
+#endif
