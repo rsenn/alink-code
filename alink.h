@@ -3,7 +3,6 @@
 #include <memory.h>
 #include <string.h>
 #include <limits.h>
-#include <ctype.h>
 
 #define TRUE  (1==1)
 #define FALSE (1==0)
@@ -261,18 +260,18 @@
 #define OUTPUT_EXE 2
 #define OUTPUT_PE  3
 
-#define WIN32_DEFAULT_BASE 		0x00400000
-#define WIN32_DEFAULT_FILEALIGN 	0x00000200
-#define WIN32_DEFAULT_OBJECTALIGN 	0x00010000
-#define WIN32_DEFAULT_STACKSIZE		0x00100000
-#define WIN32_DEFAULT_STACKCOMMITSIZE	0x00001000
-#define WIN32_DEFAULT_HEAPSIZE		0x00100000
-#define WIN32_DEFAULT_HEAPCOMMITSIZE	0x00001000
-#define WIN32_DEFAULT_SUBSYS		PE_SUBSYS_WINDOWS
-#define WIN32_DEFAULT_SUBSYSMAJOR	4
-#define WIN32_DEFAULT_SUBSYSMINOR	0
-#define WIN32_DEFAULT_OSMAJOR		1
-#define WIN32_DEFAULT_OSMINOR		0
+#define WIN32_DEFAULT_BASE              0x00400000
+#define WIN32_DEFAULT_FILEALIGN         0x00000200
+#define WIN32_DEFAULT_OBJECTALIGN       0x00010000
+#define WIN32_DEFAULT_STACKSIZE         0x00100000
+#define WIN32_DEFAULT_STACKCOMMITSIZE   0x00001000
+#define WIN32_DEFAULT_HEAPSIZE          0x00100000
+#define WIN32_DEFAULT_HEAPCOMMITSIZE    0x00001000
+#define WIN32_DEFAULT_SUBSYS            PE_SUBSYS_WINDOWS
+#define WIN32_DEFAULT_SUBSYSMAJOR       4
+#define WIN32_DEFAULT_SUBSYSMINOR       0
+#define WIN32_DEFAULT_OSMAJOR           1
+#define WIN32_DEFAULT_OSMINOR           0
 
 #define EXP_ORD 0x80
 
@@ -404,11 +403,6 @@ char GetNbit(PUCHAR mask,long i);
 int stricmp(const char *s1,const char*s2);
 char *strupr(char *s);
 int getBitCount(UINT a);
-void matchExterns(void);
-void combineBlocks(void);
-void sortSegments(void);
-void loadFiles(void);
-void generateMap(void);
 
 
 extern char case_sensitive;
@@ -466,7 +460,7 @@ extern PPLIBFILE libfiles;
 extern PCHAR modname[256];
 extern PCHAR filename[256];
 extern UINT namecount,namemin,
-	segcount,segmin,outcount,baseSeg,
+	segcount,segmin,outcount,
 	grpcount,grpmin,
 	pubcount,pubmin,
 	extcount,extmin,
@@ -478,3 +472,4 @@ extern UINT namecount,namemin,
 	libcount;
 
 extern int buildDll;
+extern PUCHAR stubName;

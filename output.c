@@ -54,8 +54,12 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
 		printf("Reloc:Unsupported FRAME type %i\n",r->ftype);
 		errcount++;
 	}
-	if(baseseg<0) baseseg=baseSeg; /* get global base seg if none defined */
-	/* this is a fix for TASM FLAT model, where FLAT group has no segments */
+	if(baseseg<0)
+    {
+        printf("Undefined base seg\n");
+        exit(1);
+    }	/* this is a fix for TASM FLAT model, where FLAT group has no segments */
+
 	switch(r->ttype)
 	{
 	case REL_EXTDISP:
@@ -113,8 +117,12 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
 			printf("Reloc:Unsupported TARGET type %i\n",r->ttype);
 			errcount++;
 	}
-	if(targseg<0) targseg=baseSeg; /* get global base segment if no target */
-	if((!errcount) && (!seglist[targseg]))
+	if(targseg<0)
+    {
+        printf("undefined seg\n");
+        exit(1);
+    }
+    if((!errcount) && (!seglist[targseg]))
 	{
 		errcount++;
 	}
@@ -135,7 +143,7 @@ void GetFixupTarget(PRELOC r,long *bseg,UINT *tofs,int isFlat)
 			}
 			targofs+=seglist[targseg]->base-seglist[baseseg]->base;
 		}
-*/                
+*/
 		if((seglist[baseseg]->attr&SEG_ALIGN)==SEG_ABS)
 		{
 			printf("Warning: Reloc frame is absolute segment\n");
@@ -257,7 +265,7 @@ void OutputCOMfile(PCHAR outname)
 				temps+=seglist[targseg]->absframe;
 				seglist[relocs[i]->segnum]->data[j]=temps&0xff;
 				seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
-			 }                         
+			 }
 			 break;
 		case FIX_OFS32:
 		case FIX_OFS32_2:
@@ -381,7 +389,7 @@ void OutputCOMfile(PCHAR outname)
 		if(outlist[i] && ((outlist[i]->attr&SEG_ALIGN) !=SEG_ABS))
 		{
 			if(started>outlist[i]->base)
-			{       
+			{
 				printf("Segment overlap\n");
 				fclose(outfile);
 				exit(1);
@@ -446,7 +454,7 @@ void OutputEXEfile(PCHAR outname)
 	UINT totlength;
 	unsigned short temps;
 	unsigned long templ;
-	
+
 	if(impsreq)
 	{
 		ReportError(ERR_ILLEGAL_IMPORTS);
@@ -460,12 +468,12 @@ void OutputEXEfile(PCHAR outname)
 		ReportError(ERR_NO_MEM);
 	}
 	relcount=0;
-	
+
 	for(i=0;i<0x40;i++)
 	{
 		headbuf[i]=0;
 	}
-	
+
 	headbuf[0x00]='M'; /* sig */
 	headbuf[0x01]='Z';
 	headbuf[0x0c]=maxalloc&0xff;
@@ -493,7 +501,7 @@ void OutputEXEfile(PCHAR outname)
 		{
 			headbuf[0x14]=startaddr.ofs&0xff;
 			headbuf[0x15]=startaddr.ofs>>8;
-			
+
 			headbuf[0x16]=i&0xff;
 			headbuf[0x17]=i>>8;
 		}
@@ -502,14 +510,14 @@ void OutputEXEfile(PCHAR outname)
 	{
 		printf("Warning, no entry point specified\n");
 	}
-	
+
 	totlength=0;
-	
+
 	for(i=0;i<outcount;i++)
 	{
 		if((outlist[i]->attr&SEG_ALIGN)!=SEG_ABS)
 		{
-			totlength=outlist[i]->base+outlist[i]->length;    
+			totlength=outlist[i]->base+outlist[i]->length;
 			if((outlist[i]->attr&SEG_COMBINE)==SEG_STACK)
 			{
 				if(gotstack)
@@ -538,7 +546,7 @@ void OutputEXEfile(PCHAR outname)
 			}
 		}
 	}
-	
+
 	if(!gotstack)
 	{
 		printf("Warning - no stack\n");
@@ -592,11 +600,12 @@ void OutputEXEfile(PCHAR outname)
 				temps+=(seglist[targseg]->base>>4);
 				seglist[relocs[i]->segnum]->data[j]=temps&0xff;
 				seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
-				templ=seglist[relocs[i]->segnum]->base+j;
-				headbuf[0x40+relcount*4]=templ&0xff;
+				templ=seglist[relocs[i]->segnum]->base>>4;
+				headbuf[0x40+relcount*4+2]=templ&0xff;
+				headbuf[0x40+relcount*4+3]=(templ>>8)&0xff;
+				templ=(seglist[relocs[i]->segnum]->base&0xf)+j;
+				headbuf[0x40+relcount*4]=(templ)&0xff;
 				headbuf[0x40+relcount*4+1]=(templ>>8)&0xff;
-				headbuf[0x40+relcount*4+2]=(templ>>16)&0xff;
-				headbuf[0x40+relcount*4+3]=(templ>>24)&0xff;
 				relcount++;
 			}
 			else
@@ -606,7 +615,7 @@ void OutputEXEfile(PCHAR outname)
 				temps+=seglist[targseg]->absframe;
 				seglist[relocs[i]->segnum]->data[j]=temps&0xff;
 				seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
-			}                         
+			}
 			break;
 		case FIX_OFS32:
 		case FIX_OFS32_2:
@@ -716,8 +725,8 @@ void OutputEXEfile(PCHAR outname)
 	{
 		printf("Too many relocations\n");
 		exit(1);
-	}        
-	
+	}
+
 	headbuf[0x06]=relcount&0xff;
 	headbuf[0x07]=relcount>>8;
 	i=relcount*4+0x4f;
@@ -736,7 +745,7 @@ void OutputEXEfile(PCHAR outname)
 	}
 	headbuf[0x04]=i&0xff;
 	headbuf[0x05]=i>>8;
-	
+
 
 	if(errcount!=0)
 	{
@@ -749,7 +758,7 @@ void OutputEXEfile(PCHAR outname)
 		printf("Error writing to file %s\n",outname);
 		exit(1);
 	}
-	
+
 	i=(headbuf[0x08]+256*headbuf[0x09])*16;
 	if(fwrite(headbuf,1,i,outfile)!=i)
 	{
@@ -765,7 +774,7 @@ void OutputEXEfile(PCHAR outname)
 		if(outlist[i] && ((outlist[i]->attr&SEG_ALIGN) !=SEG_ABS))
 		{
 			if(started>outlist[i]->base)
-			{       
+			{
 				printf("Segment overlap\n");
 				fclose(outfile);
 				exit(1);
@@ -802,7 +811,7 @@ void OutputEXEfile(PCHAR outname)
 			}
 		}
 	}
-	
+
 	if(lastout!=started)
 	{
 		fseek(outfile,0,SEEK_SET);
@@ -812,7 +821,7 @@ void OutputEXEfile(PCHAR outname)
 		headbuf[0x03]=i>>8;
 		i=(lastout+0x1ff)>>9;
 		headbuf[0x04]=i&0xff;
-		headbuf[0x05]=i>>8;      
+		headbuf[0x05]=i>>8;
 		i=((totlength-lastout)+0xf)>>4;
 		if(i>65535)
 		{
@@ -850,7 +859,7 @@ long createOutputSection(char *name,UINT winFlags)
 	outlist[outcount]->nameindex=namecount;
 	outlist[outcount]->classindex=-1;
 	outlist[outcount]->overlayindex=-1;
-	namecount++;    
+	namecount++;
 	j=outlist[outcount-1]->base+outlist[outcount-1]->length;
 	j+=(objectAlign-1);
 	j&=(0xffffffff-(objectAlign-1));
@@ -900,7 +909,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 		{
 			dllNames=(char**)realloc(dllNames,(dllCount+1)*sizeof(char*));
 			dllNumImps=(int*)realloc(dllNumImps,(dllCount+1)*sizeof(int));
-                        dllImpsDone=(int*)realloc(dllImpsDone,(dllCount+1)*sizeof(int));
+						dllImpsDone=(int*)realloc(dllImpsDone,(dllCount+1)*sizeof(int));
 			dllImpNameSize=(int*)realloc(dllImpNameSize,(dllCount+1)*sizeof(int));
 			if(!dllNames || !dllNumImps || !dllImpNameSize || !dllImpsDone)
 			{
@@ -922,7 +931,7 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 			if(dllImpNameSize[j]&1) dllImpNameSize[j]++;
 		}
 	}
-	
+
 	if(!reqcount || !dllCount) return;
 
 	objectTable+=PE_OBJECTENTRY_SIZE*impsectNum; /* point to import object entry */
@@ -1028,8 +1037,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 		namePos+=strlen(dllNames[i])+1;
 		if(namePos&1)
 		{
-			namePos++;
 			impsect->data[namePos-impsect->base]=0;
+			namePos++;
 		}
 		/* add imported names to table */
 		for(k=0;k<reqcount;k++)
@@ -1058,8 +1067,8 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 				impNamePos+=strlen(impdefs[reqimps[k]]->imp_name)+1;
 				if(impNamePos&1)
 				{
-					impNamePos++;
 					impsect->data[impNamePos-impsect->base]=0;
+					impNamePos++;
 				}
 			}
 			else
@@ -1090,7 +1099,13 @@ void BuildPEImports(long impsectNum,PUCHAR objectTable)
 		impsect->data[thunk2Pos-impsect->base+1]=0;
 		impsect->data[thunk2Pos-impsect->base+2]=0;
 		impsect->data[thunk2Pos-impsect->base+3]=0;
-		thunkPos+=2*4*(dllNumImps[i]+1);
+		thunkPos=thunk2Pos;
+	}
+	/* zero out the final entry to mark the end of the table */
+	j=i*PE_IMPORTDIRENTRY_SIZE;
+	for(i=0;i<PE_IMPORTDIRENTRY_SIZE;i++,j++)
+	{
+		impsect->data[j]=0;
 	}
 
 	k=impsect->length;
@@ -1177,7 +1192,7 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 				temps+=seglist[targseg]->absframe;
 				seglist[relocs[i]->segnum]->data[j]=temps&0xff;
 				seglist[relocs[i]->segnum]->data[j+1]=(temps>>8)&0xff;
-			 }                         
+			 }
 			 break;
 		case FIX_OFS32:
 		case FIX_OFS32_2:
@@ -1206,9 +1221,28 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 			 break;
 		case FIX_LBYTE:
 		case FIX_HBYTE:
-		case FIX_SELF_LBYTE:
 			printf("Error: Byte relocations not supported in PE files\n");
 			errcount++;
+			break;
+		case FIX_SELF_LBYTE:
+			if(targseg>=0)
+			{
+				printf("Error: Absolute Reloc target not supported for self-relative fixups\n");
+				errcount++;
+			}
+			else
+			{
+				j=targofs;
+				j-=(seglist[relocs[i]->segnum]->base+relocs[i]->ofs+1);
+				if((j<-128)||(j>127))
+				{
+					printf("Error: Reloc %li out of range\n",i);
+				}
+				else
+				{
+					seglist[relocs[i]->segnum]->data[relocs[i]->ofs]+=j;
+				}
+			}
 			break;
 		case FIX_SELF_OFS16:
 		case FIX_SELF_OFS16_2:
@@ -1273,203 +1307,213 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 		for(j=i-1;j>=0;j--) /* search backwards through table */
 		{
 			/* stop once we've found a target before current */
-			if(r->outputPos>=relocs[j]->outputPos) break;
-			/* otherwise move reloc entry up */
-			relocs[j+1]=relocs[j];
-		}
-		j++; /* point to first entry after non-match */
-		relocs[j]=r; /* put current reloc in position */
-	}
+            if(r->outputPos>=relocs[j]->outputPos) break;
+            /* otherwise move reloc entry up */
+            relocs[j+1]=relocs[j];
+        }
+        j++; /* point to first entry after non-match */
+        relocs[j]=r; /* put current reloc in position */
+    }
 
-	for(i=0,curStartPos=0,curBlockPos=0;i<fixcount;i++)
-	{
-		if(relocs[i]->outputPos>=(curStartPos+0x1000)) /* more than 4K past block start? */
-		{
-			j=relocSect->length&3;
-			if(j) /* unaligned block position */
-			{
-				relocSect->length+=4-j; /* update length to align block */
-				/* and block memory */
-				relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
-				if(!relocSect->data) ReportError(ERR_NO_MEM);
-				/* update size of current reloc block */
-				k=relocSect->data[curBlockPos+4];
-				k+=relocSect->data[curBlockPos+5]<<8;
-				k+=relocSect->data[curBlockPos+6]<<16;
-				k+=relocSect->data[curBlockPos+7]<<24;
-				k+=4-j;
-				relocSect->data[curBlockPos+4]=k&0xff;
-				relocSect->data[curBlockPos+5]=(k>>8)&0xff;
-				relocSect->data[curBlockPos+6]=(k>>16)&0xff;
-				relocSect->data[curBlockPos+7]=(k>>24)&0xff;
-				for(j=4-j;j>0;j--)
-				{
-					relocSect->data[relocSect->length-j]=0;
-				}
-			}
-			curBlockPos=relocSect->length; /* get address in section of current block */
-			relocSect->length+=8; /* 8 bytes block header */
-			/* increase size of block */
-			relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
-			if(!relocSect->data) ReportError(ERR_NO_MEM);
-			/* store reloc base address, and block size */
-			curStartPos=relocs[i]->outputPos&0xfffff000; /* start of mem page */
+    for(i=0,curStartPos=0,curBlockPos=0;i<fixcount;i++)
+    {
+        switch(relocs[i]->rtype)
+        {
+        case FIX_SELF_OFS32:
+        case FIX_SELF_OFS32_2:
+        case FIX_SELF_OFS16:
+        case FIX_SELF_OFS16_2:
+                continue; /* self-relative fixups don't relocate */
+        default:
+                break;
+        }
+        if(relocs[i]->outputPos>=(curStartPos+0x1000)) /* more than 4K past block start? */
+        {
+            j=relocSect->length&3;
+            if(j) /* unaligned block position */
+            {
+                relocSect->length+=4-j; /* update length to align block */
+                /* and block memory */
+                relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
+                if(!relocSect->data) ReportError(ERR_NO_MEM);
+                /* update size of current reloc block */
+                k=relocSect->data[curBlockPos+4];
+                k+=relocSect->data[curBlockPos+5]<<8;
+                k+=relocSect->data[curBlockPos+6]<<16;
+                k+=relocSect->data[curBlockPos+7]<<24;
+                k+=4-j;
+                relocSect->data[curBlockPos+4]=k&0xff;
+                relocSect->data[curBlockPos+5]=(k>>8)&0xff;
+                relocSect->data[curBlockPos+6]=(k>>16)&0xff;
+                relocSect->data[curBlockPos+7]=(k>>24)&0xff;
+                for(j=4-j;j>0;j--)
+                {
+                    relocSect->data[relocSect->length-j]=0;
+                }
+            }
+            curBlockPos=relocSect->length; /* get address in section of current block */
+            relocSect->length+=8; /* 8 bytes block header */
+            /* increase size of block */
+            relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length);
+            if(!relocSect->data) ReportError(ERR_NO_MEM);
+            /* store reloc base address, and block size */
+            curStartPos=relocs[i]->outputPos&0xfffff000; /* start of mem page */
 
-			/* start pos is relative to image base */
-			relocSect->data[curBlockPos]=(curStartPos-imageBase)&0xff;
-			relocSect->data[curBlockPos+1]=((curStartPos-imageBase)>>8)&0xff;
-			relocSect->data[curBlockPos+2]=((curStartPos-imageBase)>>16)&0xff;
-			relocSect->data[curBlockPos+3]=((curStartPos-imageBase)>>24)&0xff;
+            /* start pos is relative to image base */
+            relocSect->data[curBlockPos]=(curStartPos-imageBase)&0xff;
+            relocSect->data[curBlockPos+1]=((curStartPos-imageBase)>>8)&0xff;
+            relocSect->data[curBlockPos+2]=((curStartPos-imageBase)>>16)&0xff;
+            relocSect->data[curBlockPos+3]=((curStartPos-imageBase)>>24)&0xff;
 
-			relocSect->data[curBlockPos+4]=8; /* start size is 8 bytes */
-			relocSect->data[curBlockPos+5]=0;
-			relocSect->data[curBlockPos+6]=0;
-			relocSect->data[curBlockPos+7]=0;
-		}
-		relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length+2);
-		if(!relocSect->data) ReportError(ERR_NO_MEM);
+            relocSect->data[curBlockPos+4]=8; /* start size is 8 bytes */
+            relocSect->data[curBlockPos+5]=0;
+            relocSect->data[curBlockPos+6]=0;
+            relocSect->data[curBlockPos+7]=0;
+        }
+        relocSect->data=(PUCHAR)realloc(relocSect->data,relocSect->length+2);
+        if(!relocSect->data) ReportError(ERR_NO_MEM);
 
-		j=relocs[i]->outputPos-curStartPos; /* low 12 bits of address */
-		switch(relocs[i]->rtype)
-		{
-		case FIX_PTR1616:
-		case FIX_OFS16:
-		case FIX_OFS16_2:
-		case FIX_SELF_OFS16:
-		case FIX_SELF_OFS16_2:
-			j|= PE_REL_LOW16;
-			break;
-		case FIX_PTR1632:
-		case FIX_OFS32:
-		case FIX_SELF_OFS32:
-			j|= PE_REL_OFS32;
-		}
-		/* store relocation */
-		relocSect->data[relocSect->length]=j&0xff;
-		relocSect->data[relocSect->length+1]=(j>>8)&0xff;
-		/* update block length */
-		relocSect->length+=2;
-		/* update size of current reloc block */
-		k=relocSect->data[curBlockPos+4];
-		k+=relocSect->data[curBlockPos+5]<<8;
-		k+=relocSect->data[curBlockPos+6]<<16;
-		k+=relocSect->data[curBlockPos+7]<<24;
-		k+=2;
-		relocSect->data[curBlockPos+4]=k&0xff;
-		relocSect->data[curBlockPos+5]=(k>>8)&0xff;
-		relocSect->data[curBlockPos+6]=(k>>16)&0xff;
-		relocSect->data[curBlockPos+7]=(k>>24)&0xff;
-	}
+        j=relocs[i]->outputPos-curStartPos; /* low 12 bits of address */
+        switch(relocs[i]->rtype)
+        {
+        case FIX_PTR1616:
+        case FIX_OFS16:
+        case FIX_OFS16_2:
+        case FIX_SELF_OFS16:
+        case FIX_SELF_OFS16_2:
+            j|= PE_REL_LOW16;
+            break;
+        case FIX_PTR1632:
+        case FIX_OFS32:
+        case FIX_SELF_OFS32:
+            j|= PE_REL_OFS32;
+        }
+        /* store relocation */
+        relocSect->data[relocSect->length]=j&0xff;
+        relocSect->data[relocSect->length+1]=(j>>8)&0xff;
+        /* update block length */
+        relocSect->length+=2;
+        /* update size of current reloc block */
+        k=relocSect->data[curBlockPos+4];
+        k+=relocSect->data[curBlockPos+5]<<8;
+        k+=relocSect->data[curBlockPos+6]<<16;
+        k+=relocSect->data[curBlockPos+7]<<24;
+        k+=2;
+        relocSect->data[curBlockPos+4]=k&0xff;
+        relocSect->data[curBlockPos+5]=(k>>8)&0xff;
+        relocSect->data[curBlockPos+6]=(k>>16)&0xff;
+        relocSect->data[curBlockPos+7]=(k>>24)&0xff;
+    }
 
-	relocSect->datmask=(PUCHAR)malloc((relocSect->length+7)/8);
-	if(!relocSect->datmask)
-	{
-		ReportError(ERR_NO_MEM);
-	}
-	for(i=0;i<(relocSect->length+7)/8;i++)
-	{
-		relocSect->datmask[i]=0xff;
-	}
+    relocSect->datmask=(PUCHAR)malloc((relocSect->length+7)/8);
+    if(!relocSect->datmask)
+    {
+        ReportError(ERR_NO_MEM);
+    }
+    for(i=0;i<(relocSect->length+7)/8;i++)
+    {
+        relocSect->datmask[i]=0xff;
+    }
 
-	objectTable+=PE_OBJECTENTRY_SIZE*relocSectNum; /* point to reloc object entry */
-	k=relocSect->length;
-	k+=objectAlign-1;
-	k&=(0xffffffff-(objectAlign-1));
-	relocSect->virtualSize=k;
-	objectTable[8]=k&0xff; /* store virtual size (in memory) of segment */
-	objectTable[9]=(k>>8)&0xff;
-	objectTable[10]=(k>>16)&0xff;
-	objectTable[11]=(k>>24)&0xff;
+    objectTable+=PE_OBJECTENTRY_SIZE*relocSectNum; /* point to reloc object entry */
+    k=relocSect->length;
+    k+=objectAlign-1;
+    k&=(0xffffffff-(objectAlign-1));
+    relocSect->virtualSize=k;
+    objectTable[8]=k&0xff; /* store virtual size (in memory) of segment */
+    objectTable[9]=(k>>8)&0xff;
+    objectTable[10]=(k>>16)&0xff;
+    objectTable[11]=(k>>24)&0xff;
 
-	k=relocSect->length;
-	k+=fileAlign-1;
-	k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
-	objectTable[16]=(k)&0xff; /* store initialised data size */
-	objectTable[17]=(k>>8)&0xff;
-	objectTable[18]=(k>>16)&0xff;
-	objectTable[19]=(k>>16)&0xff;
+    k=relocSect->length;
+    k+=fileAlign-1;
+    k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
+    objectTable[16]=(k)&0xff; /* store initialised data size */
+    objectTable[17]=(k>>8)&0xff;
+    objectTable[18]=(k>>16)&0xff;
+    objectTable[19]=(k>>16)&0xff;
 
-	k=objectTable[-PE_OBJECTENTRY_SIZE+20]; /* get physical start of prev object */
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+21]<<8;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+22]<<16;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+23]<<24;
+    k=objectTable[-PE_OBJECTENTRY_SIZE+20]; /* get physical start of prev object */
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+21]<<8;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+22]<<16;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+23]<<24;
 
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+16]; /* add physical length of prev object */
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+17]<<8;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+16]; /* add physical length of prev object */
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+17]<<8;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+18]<<16;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+19]<<24;
 
-	/* k is now physical location of this object */
+    /* k is now physical location of this object */
 
-	objectTable[20]=(k)&0xff; /* store physical file offset */
-	objectTable[21]=(k>>8)&0xff;
-	objectTable[22]=(k>>16)&0xff;
-	objectTable[23]=(k>>24)&0xff;
+    objectTable[20]=(k)&0xff; /* store physical file offset */
+    objectTable[21]=(k>>8)&0xff;
+    objectTable[22]=(k>>16)&0xff;
+    objectTable[23]=(k>>24)&0xff;
 
-	k=objectTable[-PE_OBJECTENTRY_SIZE+12]; /* get virtual start of prev object */
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+13]<<8;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+14]<<16;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+15]<<24;
+    k=objectTable[-PE_OBJECTENTRY_SIZE+12]; /* get virtual start of prev object */
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+13]<<8;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+14]<<16;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+15]<<24;
 
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+8]; /* add virtual length of prev object */
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+9]<<8;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+10]<<16;
-	k+=objectTable[-PE_OBJECTENTRY_SIZE+11]<<24;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+8]; /* add virtual length of prev object */
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+9]<<8;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+10]<<16;
+    k+=objectTable[-PE_OBJECTENTRY_SIZE+11]<<24;
 
-	/* store base address (RVA) of section */
-	objectTable[12]=(k)&0xff;
-	objectTable[13]=(k>>8)&0xff;
-	objectTable[14]=(k>>16)&0xff;
-	objectTable[15]=(k>>24)&0xff;
+    /* store base address (RVA) of section */
+    objectTable[12]=(k)&0xff;
+    objectTable[13]=(k>>8)&0xff;
+    objectTable[14]=(k>>16)&0xff;
+    objectTable[15]=(k>>24)&0xff;
 
-	relocSect->base=k+imageBase; /* relocate section */
-	
-	return;
+    relocSect->base=k+imageBase; /* relocate section */
+
+    return;
 }
 
 void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
 {
         long i,j;
         UINT k;
-	PSEG expSect;
-	UINT namelen;
-	UINT numNames=0;
-	UINT RVAStart;
-	UINT nameRVAStart;
-	UINT ordinalStart;
-	UINT nameSpaceStart;
-	UINT minOrd;
-	UINT maxOrd;
-	UINT numOrds;
-	PPEXPREC nameList;
-	PEXPREC curName;
+    PSEG expSect;
+    UINT namelen;
+    UINT numNames=0;
+    UINT RVAStart;
+    UINT nameRVAStart;
+    UINT ordinalStart;
+    UINT nameSpaceStart;
+    UINT minOrd;
+    UINT maxOrd;
+    UINT numOrds;
+    PPEXPREC nameList;
+    PEXPREC curName;
 
-	if(!expcount) return; /* return if no exports */
-	expSect=outlist[SectNum];
+    if(!expcount) return; /* return if no exports */
+    expSect=outlist[SectNum];
 
-	if(name)
-	{
-		namelen=strlen(name);
-		/* search backwards for path separator */
-		for(i=namelen-1;(i>=0) && (name[i]!=PATH_CHAR);i--);
-		if(i>=0) /* if found path separator */
-		{
-			name+=(i+1); /* update name pointer past path */
-			namelen -= (i+1); /* and reduce length */
-		}
-	}
-	else namelen=0;
+    if(name)
+    {
+        namelen=strlen(name);
+        /* search backwards for path separator */
+        for(i=namelen-1;(i>=0) && (name[i]!=PATH_CHAR);i--);
+        if(i>=0) /* if found path separator */
+        {
+            name+=(i+1); /* update name pointer past path */
+            namelen -= (i+1); /* and reduce length */
+        }
+    }
+    else namelen=0;
 
-	expSect->length=PE_EXPORTHEADER_SIZE+4*expcount+namelen+1;
-	/* min section size= header size + num exports * pointer size */
-	/* plus space for null-terminated name */
+    expSect->length=PE_EXPORTHEADER_SIZE+4*expcount+namelen+1;
+    /* min section size= header size + num exports * pointer size */
+    /* plus space for null-terminated name */
 
-	minOrd=0xffffffff; /* max ordinal num */
-	maxOrd=0;
+    minOrd=0xffffffff; /* max ordinal num */
+    maxOrd=0;
 
-	for(i=0;i<expcount;i++)
-	{
-		/* check we've got an exported name */
+    for(i=0;i<expcount;i++)
+    {
+        /* check we've got an exported name */
 		if(expdefs[i]->exp_name && strlen(expdefs[i]->exp_name))
 		{
 			/* four bytes for name pointer */
@@ -1723,7 +1767,7 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
 		expSect->data[14]=((nameSpaceStart+expSect->base-imageBase)>>16)&0xff;
 		expSect->data[15]=((nameSpaceStart+expSect->base-imageBase)>>24)&0xff;
 	}
-	
+
 	expSect->datmask=(PUCHAR)malloc((expSect->length+7)/8);
 	if(!expSect->datmask)
 	{
@@ -1739,8 +1783,95 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
 
 void getStub(PUCHAR *pstubData,UINT *pstubSize)
 {
-	(*pstubData)=defaultStub;
-	(*pstubSize)=defaultStubSize;
+    FILE *f;
+    unsigned char headbuf[0x1c];
+    PUCHAR buf;
+    UINT imageSize;
+    UINT headerSize;
+    UINT relocSize;
+    UINT relocStart;
+    int i;
+
+    if(stubName)
+    {
+        f=fopen(stubName,"rb");
+        if(!f)
+        {
+            printf("Unable to open stub file %s\n",stubName);
+            exit(1);
+        }
+        if(fread(headbuf,1,0x1c,f)!=0x1c) /* try and read 0x1c bytes */
+        {
+            printf("Error reading from file %s\n",stubName);
+            exit(1);
+        }
+        if((headbuf[0]!=0x4d) || (headbuf[1]!=0x5a))
+        {
+            printf("Stub not valid EXE file\n");
+            exit(1);
+        }
+        /* get size of image */
+        imageSize=headbuf[2]+(headbuf[3]<<8)+((headbuf[4]+(headbuf[5]<<8))<<9);
+        if(imageSize%512) imageSize-=512;
+        headerSize=(headbuf[8]+(headbuf[9]<<8))<<4;
+        relocSize=(headbuf[6]+(headbuf[7]<<8))<<2;
+        imageSize-=headerSize;
+        printf("imageSize=%i\n",imageSize);
+        printf("header=%i\n",headerSize);
+        printf("reloc=%i\n",relocSize);
+
+        /* allocate buffer for load image */
+        buf=(PUCHAR)malloc(imageSize+0x40+((relocSize+0xf)&0xfffffff0));
+        if(!buf) ReportError(ERR_NO_MEM);
+        /* copy header */
+        for(i=0;i<0x1c;i++) buf[i]=headbuf[i];
+
+        relocStart=headbuf[0x18]+(headbuf[0x19]<<8);
+        /* load relocs */
+        fseek(f,relocStart,SEEK_SET);
+        if(fread(buf+0x40,1,relocSize,f)!=relocSize)
+        {
+            printf("Error reading from file %s\n",stubName);
+            exit(1);
+        }
+
+        /* paragraph align reloc size */
+        relocSize+=0xf;
+        relocSize&=0xfffffff0;
+
+        /* move to start of data */
+        fseek(f,headerSize,SEEK_SET);
+        /* new header is 4 paragraphs long + relocSize*/
+        relocSize>>=4;
+        relocSize+=4;
+        buf[8]=relocSize&0xff;
+        buf[9]=(relocSize>>8)&0xff;
+        headerSize=relocSize<<4;
+        /* load data into correct position */
+        if(fread(buf+headerSize,1,imageSize,f)!=imageSize)
+        {
+            printf("Error reading from file %s\n",stubName);
+            exit(1);
+        }
+        /* relocations start at 0x40 */
+        buf[0x18]=0x40;
+        buf[0x19]=0;
+        imageSize+=headerSize; /* total file size */
+        /* store pointer and size */
+        (*pstubData)=buf;
+        (*pstubSize)=imageSize;
+        i=imageSize%512; /* size mod 512 */
+        imageSize=(imageSize+511)>>9; /* number of 512-byte pages */
+        buf[2]=i&0xff;
+        buf[3]=(i>>8)&0xff;
+        buf[4]=imageSize&0xff;
+        buf[5]=(imageSize>>8)&0xff;
+    }
+    else
+    {
+	    (*pstubData)=defaultStub;
+	    (*pstubSize)=defaultStubSize;
+    }
 }
 
 void OutputWin32file(PCHAR outname)
@@ -1754,13 +1885,13 @@ void OutputWin32file(PCHAR outname)
 	UINT headerSize;
 	UINT headerVirtSize;
 	UINT stubSize;
-        long nameIndex;
+		long nameIndex;
 	UINT sectionStart;
 	UINT headerStart;
 	long relocSectNum,importSectNum,exportSectNum;
 
 	printf("Generating PE file %s\n",outname);
-	
+
 	errcount=0;
 
 	/* allocate section entries for imports, exports and relocs if required */
@@ -1813,7 +1944,7 @@ void OutputWin32file(PCHAR outname)
 	{
 		ReportError(ERR_NO_MEM);
 	}
-	
+
 	for(i=0;i<headerSize;i++)
 	{
 		headbuf[i]=0;
@@ -1822,12 +1953,12 @@ void OutputWin32file(PCHAR outname)
 	for(i=0;i<stubSize;i++) /* copy stub file */
 		headbuf[i]=stubData[i];
 
-	headbuf[0x3c]=headerStart&0xff;         /* store pointer to PE header */
+	headbuf[0x3c]=headerStart&0xff;			/* store pointer to PE header */
 	headbuf[0x3d]=(headerStart>>8)&0xff;
 	headbuf[0x3e]=(headerStart>>16)&0xff;
 	headbuf[0x3f]=(headerStart>>24)&0xff;
 
-	headbuf[headerStart+PE_SIGNATURE]=0x50;   /* P */
+	headbuf[headerStart+PE_SIGNATURE]=0x50;	  /* P */
 	headbuf[headerStart+PE_SIGNATURE+1]=0x45; /* E */
 	headbuf[headerStart+PE_SIGNATURE+2]=0x00; /* 0 */
 	headbuf[headerStart+PE_SIGNATURE+3]=0x00; /* 0 */
@@ -1836,12 +1967,12 @@ void OutputWin32file(PCHAR outname)
 	headbuf[headerStart+PE_HDRSIZE]=PE_OPTIONAL_HEADER_SIZE&0xff;
 	headbuf[headerStart+PE_HDRSIZE+1]=(PE_OPTIONAL_HEADER_SIZE>>8)&0xff;
 
-	i=PE_FILE_EXECUTABLE | PE_FILE_32BIT;                   /* get flags */
+	i=PE_FILE_EXECUTABLE | PE_FILE_32BIT;					/* get flags */
 	if(buildDll)
 	{
 		i|= PE_FILE_LIBRARY;				/* if DLL, flag it */
 	}
-	headbuf[headerStart+PE_FLAGS]=i&0xff;                   /* store them */
+	headbuf[headerStart+PE_FLAGS]=i&0xff;					/* store them */
 	headbuf[headerStart+PE_FLAGS+1]=(i>>8)&0xff;
 
 	headbuf[headerStart+PE_MAGIC]=PE_MAGICNUM&0xff; /* store magic number */
@@ -1903,6 +2034,7 @@ void OutputWin32file(PCHAR outname)
 	/* shift segment start addresses up into place and build section headers */
 	sectionStart=headerSize;
 	j=headerStart+PE_HEADBUF_SIZE;
+
 	for(i=0;i<outcount;i++,j+=PE_OBJECTENTRY_SIZE)
 	{
 		nameIndex=outlist[i]->nameindex;
@@ -1913,10 +2045,7 @@ void OutputWin32file(PCHAR outname)
 				headbuf[j+k]=namelist[nameIndex][k];
 			}
 		}
-		k=outlist[i]->length;
-		k+=objectAlign-1;
-		k&=(0xffffffff-(objectAlign-1));
-		outlist[i]->virtualSize=k;
+		k=outlist[i]->virtualSize; /* get virtual size */
 		headbuf[j+8]=k&0xff; /* store virtual size (in memory) of segment */
 		headbuf[j+9]=(k>>8)&0xff;
 		headbuf[j+10]=(k>>16)&0xff;
@@ -1942,7 +2071,7 @@ void OutputWin32file(PCHAR outname)
 		sectionStart+=k; /* update section start address for next section */
 
 		outlist[i]->base+=headerVirtSize+imageBase;
-		headbuf[j+12]=(outlist[i]->base-imageBase)&0xff;
+	        headbuf[j+12]=(outlist[i]->base-imageBase)&0xff;
 		headbuf[j+13]=((outlist[i]->base-imageBase)>>8)&0xff;
 		headbuf[j+14]=((outlist[i]->base-imageBase)>>16)&0xff;
 		headbuf[j+15]=((outlist[i]->base-imageBase)>>24)&0xff;
@@ -1956,7 +2085,7 @@ void OutputWin32file(PCHAR outname)
 				/* code segment */
 				k=WINF_CODE | WINF_INITDATA | WINF_EXECUTE | WINF_READABLE;
 			}
-			else    /* data segment */
+			else	/* data segment */
 				k=WINF_INITDATA | WINF_READABLE | WINF_WRITEABLE;
 		}
 		headbuf[j+36]=(k)&0xff; /* store characteristics */
@@ -1965,7 +2094,7 @@ void OutputWin32file(PCHAR outname)
 		headbuf[j+39]=(k>>24)&0xff;
 	}
 
-	headbuf[headerStart+PE_NUMOBJECTS]=outcount&0xff;       /* store number of sections */
+	headbuf[headerStart+PE_NUMOBJECTS]=outcount&0xff;		/* store number of sections */
 	headbuf[headerStart+PE_NUMOBJECTS+1]=(outcount>>8)&0xff;
 
 	/* build import, export and relocation sections */
@@ -2047,12 +2176,12 @@ void OutputWin32file(PCHAR outname)
 
 	j=headerStart+PE_HEADBUF_SIZE+(outcount-1)*PE_OBJECTENTRY_SIZE;
 
-	i=headbuf[j+12];        /* get base of last section - image base */
+	i=headbuf[j+12];		/* get base of last section - image base */
 	i+=headbuf[j+13]<<8;
 	i+=headbuf[j+14]<<16;
 	i+=headbuf[j+15]<<24;
 
-	i+=headbuf[j+8];        /* add virtual size of section */
+	i+=headbuf[j+8];		/* add virtual size of section */
 	i+=headbuf[j+9]<<8;
 	i+=headbuf[j+10]<<16;
 	i+=headbuf[j+11]<<24;
@@ -2085,8 +2214,8 @@ void OutputWin32file(PCHAR outname)
 	{
 		if(outlist[i] && ((outlist[i]->attr&SEG_ALIGN) !=SEG_ABS))
 		{
-			if(started>outlist[i]->base)
-			{       
+		    if(started>outlist[i]->base)
+			{
 				printf("Segment overlap\n");
 				printf("Next addr=%08X,base=%08X\n",started,outlist[i]->base);
 				fclose(outfile);

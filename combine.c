@@ -71,7 +71,7 @@ void combine_segments(long i,long j)
         free(seglist[i]->datmask);
         free(seglist[j]->datmask);
         seglist[i]->data=p;
-        seglist[i]->datmask=q;   
+        seglist[i]->datmask=q;
 
         for(k=0;k<pubcount;k++)
         {
@@ -101,6 +101,8 @@ void combine_segments(long i,long j)
                         if(relocs[k]->target==j)
                         {
                                 relocs[k]->target=i;
+				relocs[k]->ttype=REL_SEGDISP;
+				relocs[k]->disp=seglist[j]->base;
                         }
                 }
                 if((relocs[k]->ftype==REL_SEGFRAME) ||
@@ -128,6 +130,8 @@ void combine_segments(long i,long j)
                         if(startaddr.target==j)
                         {
                                 startaddr.target=i;
+				startaddr.disp=seglist[j]->base;
+				startaddr.ttype=REL_SEGDISP;
                         }
                 }
                 if((startaddr.ftype==REL_SEGFRAME) ||
@@ -284,7 +288,7 @@ void combine_groups(long i,long j)
 {
         long n,m;
         char match;
-        
+
         for(n=0;n<grplist[j]->numsegs;n++)
         {
                 match=0;
@@ -303,7 +307,7 @@ void combine_groups(long i,long j)
         }
         free(grplist[j]);
         grplist[j]=0;
-        
+
         for(n=0;n<pubcount;n++)
         {
                 if(publics[n]->grpnum==j)
@@ -311,7 +315,7 @@ void combine_groups(long i,long j)
                         publics[n]->grpnum=i;
                 }
         }
-        
+
         for(n=0;n<fixcount;n++)
         {
                 if(relocs[n]->ftype==REL_GRPFRAME)
@@ -329,7 +333,7 @@ void combine_groups(long i,long j)
                         }
                 }
         }
-        
+
         if(gotstart)
         {
                 if((startaddr.ttype==REL_GRPDISP) || (startaddr.ttype==REL_GRPONLY))

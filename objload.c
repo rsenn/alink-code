@@ -149,6 +149,7 @@ void LoadFIXUP(PRELOC r,PUCHAR buf,long *p)
 
 	r->ftype=buf[j]>>4;
 	r->ttype=buf[j]&0xf;
+    r->disp=0;
 	j++;
 	if(r->ftype&FIX_THRED)
 	{
@@ -233,16 +234,15 @@ void LoadFIXUP(PRELOC r,PUCHAR buf,long *p)
 	if(r->ttype&FIX_THRED)
 	{
 		thrednum=r->ttype&3;
-		if(r->ttype&4) /* P bit set? */
+		if((r->ttype&4)==0) /* P bit not set? */
 		{
 			r->ttype=(t_thred[thrednum]>>2)&3; /* DISP present */
 		}
 		else
 		{
-                        r->ttype=((t_thred[thrednum]>>2)&7) | 4; /* no disp */
+			r->ttype=((t_thred[thrednum]>>2)&3) | 4; /* no disp */
 		}
 		r->target=t_thredindex[thrednum];
-		r->target=GetIndex(buf,&j);
 		switch(r->ttype)
 		{
 		case REL_SEGDISP:
@@ -375,6 +375,7 @@ long loadmod(FILE *objfile)
 	long modpos;
 	long done;
 	long i,j,k;
+	long segnum,grpnum;
 
 	modpos=0;
 	done=0;
@@ -527,10 +528,10 @@ long loadmod(FILE *objfile)
 								{
 									ReportError(ERR_NO_MEM);
 								}
-								strcpy(impdefs[impcount]->imp_name,impdefs[impcount]->int_name); 
+								strcpy(impdefs[impcount]->imp_name,impdefs[impcount]->int_name);
 							}
 						}
-						impcount++;                                                
+						impcount++;
 						break;
 					case EXT_EXPDEF:
 						expdefs[expcount]=malloc(sizeof(EXPREC));
@@ -844,28 +845,30 @@ long loadmod(FILE *objfile)
 			 break;
 		case PUBDEF:
 		case PUBDEF32:
-			 publics[pubcount]=malloc(sizeof(PUBLIC));
-			 if(!publics[pubcount])
-			 {
-				ReportError(ERR_NO_MEM);
-			 }
 			 j=0;
-			 for(;j<reclength;j++)
+			grpnum=GetIndex(buf,&j)-1;
+			if(grpnum>=0)
+			{
+				grpnum+=grpmin;
+			}
+			segnum=GetIndex(buf,&j)-1;
+			if(segnum<0)
+			{
+				j+=2;
+			}
+			else
+			{
+				segnum+=segmin;
+			}
+			 for(;j<reclength;)
 			 {
-				publics[pubcount]->grpnum=GetIndex(buf,&j)-1;
-				if(publics[pubcount]->grpnum>=0)
-				{
-
-				}
-				publics[pubcount]->segnum=GetIndex(buf,&j)-1;
-				if(publics[pubcount]->segnum<0)
-				{
-					j+=2;
-				}
-				else
-				{
-					publics[pubcount]->segnum+=segmin;
-				}
+				 publics[pubcount]=malloc(sizeof(PUBLIC));
+				 if(!publics[pubcount])
+				 {
+					ReportError(ERR_NO_MEM);
+				 }
+				publics[pubcount]->grpnum=grpnum;
+				publics[pubcount]->segnum=segnum;
 				publics[pubcount]->name=malloc(buf[j]+1);
 				if(!publics[pubcount]->name)
 				{
@@ -892,7 +895,7 @@ long loadmod(FILE *objfile)
 				}
 				publics[pubcount]->ofs=buf[j]+256*buf[j+1];
 				j+=2;
-				if(reclength==PUBDEF32)
+				if(rectype==PUBDEF32)
 				{
 					publics[pubcount]->ofs+=(buf[j]+256*buf[j+1])<<16;
 					j+=2;
@@ -938,8 +941,8 @@ long loadmod(FILE *objfile)
 				ReportError(ERR_NO_MEM);
 			 }
 			 j=0;
-			 grplist[grpcount]->nameindex=GetIndex(buf,&j)-1;
-			 if(grplist[grpcount]->nameindex<0)
+			 grplist[grpcount]->nameindex=GetIndex(buf,&j)-1+namemin;
+			 if(grplist[grpcount]->nameindex<namemin)
 			 {
 				ReportError(ERR_BAD_GRPDEF);
 			 }
@@ -1087,7 +1090,7 @@ void loadlib(FILE *libfile,PCHAR libname)
 	PCHAR name;
 	unsigned short modpage;
 	PLIBFILE p;
-	
+
 	libfiles[libcount]=malloc(sizeof(LIBFILE));
 	if(!libfiles[libcount])
 	{
@@ -1100,7 +1103,7 @@ void loadlib(FILE *libfile,PCHAR libname)
 		ReportError(ERR_NO_MEM);
 	}
 	strcpy(p->filename,libname);
-	
+
 	if(fread(buf,1,3,libfile)!=3)
 	{
 		printf("Error reading from file\n");
@@ -1117,15 +1120,15 @@ void loadlib(FILE *libfile,PCHAR libname)
 	p->numdicpages=buf[4]+256*buf[5];
 	p->flags=buf[6];
 	fseek(libfile,p->dicstart,SEEK_SET);
-	
+
 	p->syms=malloc(sizeof(PLIBENTRY)*37*p->numdicpages);
 	if(!p->syms)
 	{
 		ReportError(ERR_NO_MEM);
 	}
-	
+
 	p->numsyms=0;
-	
+
 	for(i=0;i<p->numdicpages;i++)
 	{
 		if(fread(buf,1,512,libfile)!=512)
@@ -1183,7 +1186,7 @@ void loadlib(FILE *libfile,PCHAR libname)
 void loadlibmod(PLIBFILE p,unsigned short modpage)
 {
 	FILE *libfile;
-	
+
 	libfile=fopen(p->filename,"rb");
 	if(!libfile)
 	{

@@ -14,7 +14,7 @@ int getBitCount(UINT a)
 
 void ClearNbit(PUCHAR mask,long i)
 {
-        mask[i/8]&=!(1<<(i%8));
+        mask[i/8]&=0xff-(1<<(i%8));
 }
 
 void SetNbit(PUCHAR mask,long i)
