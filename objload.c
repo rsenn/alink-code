@@ -394,7 +394,7 @@ long loadmod(FILE *objfile)
 		{
 			ReportError(ERR_NO_RECDATA);
 		}
-		reclength--;
+		reclength--; /* remove checksum */
 		if((!modpos)&&(rectype!=THEADR)&&(rectype!=LHEADR))
 		{
 			ReportError(ERR_NO_HEADER);
@@ -440,12 +440,32 @@ long loadmod(FILE *objfile)
 				DestroyLIDATA(lidata);
 				lidata=0;
 			 }
-			 if(reclength>=3)
+			 if(reclength>=2)
 			 {
 				switch(buf[1])
 				{
 				case COMENT_LIB_SPEC:
 				case COMENT_DEFLIB:
+					filename[filecount]=(PCHAR)malloc(reclength-1+4);
+					if(!filename[filecount]) ReportError(ERR_NO_MEM);
+					/* get filename */
+					for(i=0;i<reclength-2;i++)
+					{
+						filename[filecount][i]=buf[i+2];
+					}
+					filename[filecount][reclength-2]=0;
+					for(i=strlen(filename[filecount])-1;
+						(i>=0) && (filename[filecount][i]!=PATH_CHAR);
+						i--)
+					{
+						if(filename[filecount][i]=='.') break;
+					}
+					if((i>=0) &&  (filename[filecount][i]!='.'))
+					{
+						strcat(filename[filecount],".lib");
+					}
+					/* add default library to file list */
+					filecount++;
 					break;
 				case COMENT_OMFEXT:
 					if(reclength<4)

@@ -1141,8 +1141,6 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 	unsigned long templ;
 	unsigned short temps;
 
-	if(!fixcount) return; /* no relocs=> no section */
-
 	/* do fixups */
 	for(i=0;i<fixcount;i++)
 	{
@@ -1300,13 +1298,13 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
 	/* get reloc section */
 	relocSect=outlist[relocSectNum]; /* get section structure */
 
-	/* sort relocations into order of increasing address */
-	for(i=1;i<fixcount;i++)
+    /* sort relocations into order of increasing address */
+    for(i=1;i<fixcount;i++)
+    {
+	r=relocs[i]; /* save current reloc */
+	for(j=i-1;j>=0;j--) /* search backwards through table */
 	{
-		r=relocs[i]; /* save current reloc */
-		for(j=i-1;j>=0;j--) /* search backwards through table */
-		{
-			/* stop once we've found a target before current */
+	    /* stop once we've found a target before current */
             if(r->outputPos>=relocs[j]->outputPos) break;
             /* otherwise move reloc entry up */
             relocs[j+1]=relocs[j];
@@ -1323,6 +1321,7 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
         case FIX_SELF_OFS32_2:
         case FIX_SELF_OFS16:
         case FIX_SELF_OFS16_2:
+	case FIX_SELF_LBYTE:
                 continue; /* self-relative fixups don't relocate */
         default:
                 break;
@@ -1379,13 +1378,11 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
         case FIX_PTR1616:
         case FIX_OFS16:
         case FIX_OFS16_2:
-        case FIX_SELF_OFS16:
-        case FIX_SELF_OFS16_2:
             j|= PE_REL_LOW16;
             break;
         case FIX_PTR1632:
         case FIX_OFS32:
-        case FIX_SELF_OFS32:
+	case FIX_OFS32_2:
             j|= PE_REL_OFS32;
         }
         /* store relocation */
@@ -1403,6 +1400,21 @@ void BuildPERelocs(long relocSectNum,PUCHAR objectTable)
         relocSect->data[curBlockPos+5]=(k>>8)&0xff;
         relocSect->data[curBlockPos+6]=(k>>16)&0xff;
         relocSect->data[curBlockPos+7]=(k>>24)&0xff;
+    }
+    /* if no fixups, then build NOP fixups, to make Windows NT happy */
+    /* when it trys to relocate image */
+    if(relocSect->length==0)
+    {
+	/* 12 bytes for dummy section */
+        relocSect->length=12;
+	relocSect->data=(PUCHAR)malloc(12);
+	if(!relocSect->data)
+        {
+            ReportError(ERR_NO_MEM);
+        }
+	/* zero it out for now */
+        for(i=0;i<12;i++) relocSect->data[i]=0;
+	relocSect->data[4]=12; /* size of block */
     }
 
     relocSect->datmask=(PUCHAR)malloc((relocSect->length+7)/8);
@@ -1715,9 +1727,9 @@ void BuildPEExports(long SectNum,PUCHAR objectTable,PUCHAR name)
 		/* sort them into order */
 		for(i=1;i<numNames;i++)
 		{
+			curName=nameList[i];
 			for(j=i-1;j>=0;j--)
 			{
-				curName=nameList[i];
 				/* break out if we're above previous entry */
 				if(strcmp(curName->exp_name,nameList[j]->exp_name)>=0)
 				{
@@ -1885,10 +1897,14 @@ void OutputWin32file(PCHAR outname)
 	UINT headerSize;
 	UINT headerVirtSize;
 	UINT stubSize;
-		long nameIndex;
+	long nameIndex;
 	UINT sectionStart;
 	UINT headerStart;
 	long relocSectNum,importSectNum,exportSectNum;
+	UINT codeBase=0;
+	UINT dataBase=0;
+	UINT codeSize=0;
+	UINT dataSize=0;
 
 	printf("Generating PE file %s\n",outname);
 
@@ -1915,15 +1931,10 @@ void OutputWin32file(PCHAR outname)
 		exportSectNum=-1;
 	}
 
-	if(fixcount)
-	{
-		relocSectNum=createOutputSection("relocs",
-			WINF_INITDATA | WINF_SHARED | WINF_DISCARDABLE | WINF_READABLE);
-	}
-	else
-	{
-		relocSectNum=-1;
-	}
+	/* Windows NT requires a reloc section to relocate image files, even */
+	/* if it contains no actual fixups */
+	relocSectNum=createOutputSection("relocs",
+		WINF_INITDATA | WINF_SHARED | WINF_DISCARDABLE | WINF_READABLE);
 
 	/* build header */
 	getStub(&stubData,&stubSize);
@@ -2055,9 +2066,10 @@ void OutputWin32file(PCHAR outname)
 		{
 			for(k=outlist[i]->length-1;(k>=0)&&!GetNbit(outlist[i]->datmask,k);k--);
 			k++; /* k=initialised length */
-			k+=fileAlign-1;
-			k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
 		}
+		k+=fileAlign-1;
+		k&=(0xffffffff-(fileAlign-1)); /* aligned initialised length */
+
 		headbuf[j+16]=(k)&0xff; /* store initialised data size */
 		headbuf[j+17]=(k>>8)&0xff;
 		headbuf[j+18]=(k>>16)&0xff;
@@ -2191,6 +2203,39 @@ void OutputWin32file(PCHAR outname)
 	headbuf[headerStart+PE_IMAGESIZE+2]=(i>>16)&0xff;
 	headbuf[headerStart+PE_IMAGESIZE+3]=(i>>24)&0xff;
 
+	headbuf[headerStart+PE_CODEBASE]=codeBase&0xff;
+	headbuf[headerStart+PE_CODEBASE+1]=(codeBase>>8)&0xff;
+	headbuf[headerStart+PE_CODEBASE+2]=(codeBase>>16)&0xff;
+	headbuf[headerStart+PE_CODEBASE+3]=(codeBase>>24)&0xff;
+
+	headbuf[headerStart+PE_DATABASE]=dataBase&0xff;
+	headbuf[headerStart+PE_DATABASE+1]=(dataBase>>8)&0xff;
+	headbuf[headerStart+PE_DATABASE+2]=(dataBase>>16)&0xff;
+	headbuf[headerStart+PE_DATABASE+3]=(dataBase>>24)&0xff;
+
+	headbuf[headerStart+PE_CODESIZE]=codeSize&0xff;
+	headbuf[headerStart+PE_CODESIZE+1]=(codeSize>>8)&0xff;
+	headbuf[headerStart+PE_CODESIZE+2]=(codeSize>>16)&0xff;
+	headbuf[headerStart+PE_CODESIZE+3]=(codeSize>>24)&0xff;
+
+	headbuf[headerStart+PE_INITDATASIZE]=dataSize&0xff;
+	headbuf[headerStart+PE_INITDATASIZE+1]=(dataSize>>8)&0xff;
+	headbuf[headerStart+PE_INITDATASIZE+2]=(dataSize>>16)&0xff;
+	headbuf[headerStart+PE_INITDATASIZE+3]=(dataSize>>24)&0xff;
+
+	/* zero out section start for all zero-length segments */
+	j=headerStart+PE_HEADBUF_SIZE;
+	for(i=0;i<outcount;i++,j+=PE_OBJECTENTRY_SIZE)
+	{
+		/* check if size in file is zero */
+		k=headbuf[j+16]|headbuf[j+17]|headbuf[j+18]|headbuf[j+19];
+		if(!k)
+		{
+			/* if so, zero section start */
+			headbuf[j+20]=headbuf[j+21]=headbuf[j+22]=headbuf[j+23]=0;
+		}
+	}
+
 	if(errcount!=0)
 	{
 		exit(1);
@@ -2251,7 +2296,7 @@ void OutputWin32file(PCHAR outname)
 				}
 				started++;
 			}
-			while(started&(fileAlign-1))
+			while(ftell(outfile)&(fileAlign-1))
 			{
 				fputc(0,outfile);
 				started++;
