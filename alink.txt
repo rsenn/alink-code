@@ -1,0 +1,75 @@
+ALINK is copyright 1998 Anthony A.J. Williams. All Rights Reserved.
+
+ALINK is a linker, and links OBJ files into MSDOS COM and MSDOS EXE files.
+
+The command line is:
+
+ALINK [options] filename [options] [filenames] [options] ...
+
+By default ALINK performs a case-sensitive link to an EXE file, without
+padding segments.
+
+Possible options are:
+
+-c      Enable Case sensitive link
+-c+     "
+-c-     Disable Case sensitive link
+-p      Pad segments (initialise all segments)
+-p+     "
+-p-     Disable segment padding
+-o yyy  yyy is output filename
+-oxxx   xxx specifies output format
+        COM = output COM file
+        EXE = output EXE file
+
+options are case sensitive, so -ocom is invalid, as is -C.
+
+If an output filename is not specified, then the output file is determined
+from the output type, and the root of the first object file.
+
+e.g.
+
+        ALINK file1.obj -oCOM -o outfile.com
+
+        Generates outfile.com from file1.obj
+
+        ALINK file2.obj file3.obj -oEXE
+
+        Generates file2.exe
+
+Segments from different object files are combined if they have the same name
+and class, and are not declared private. Absolute segments are never
+combined, and stack segments are always combined.
+
+Segments are emitted in the order they are present in the object files,
+unless groups are used. All segments in groups are emitted before segments
+not in groups. A segment may not be in more than one group. Segments in groups
+are emitted in the order specified in the group definition. If two different
+definitions of the same group specify different orders, the first definition
+is used.
+
+Thus, if in the second example above, file2.obj contains a group definition
+equivalent to
+
+        agroup group code,data,stack
+
+and file3.obj contains a group definition equivalent to
+
+        agroup group data,stack,bss,code
+
+The final output for agroup will be
+
+        code,data,stack,bss
+
+The text output from the linker is quite verbose, and lists all the files as
+they are loaded in. Any unrecognised object records will cause an error. Any
+recognised, but ignored records, such as LINNUM records and COMENT records
+will be printed on the screen. Since debug information is often contained in
+COMENT records, this could lead to a lot of output. I suggest redirecting the
+output to a file, or piping it through "more".
+
+The output will also include a list of the segments, publics and externals.
+
+Any questions, comments or bug reports please email me at
+
+anthony.williams@mindless.com
