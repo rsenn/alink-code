@@ -1,5 +1,15 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <memory.h>
+#include <string.h>
+#include <limits.h>
+
+#define TRUE  (1==1)
+#define FALSE (1==0)
+
 #define SWITCHCHAR '-'
 #define PATH_CHAR '\\'
+#define DEFAULT_EXTENSION ".obj"
 
 #define ERR_EXTRA_DATA 1
 #define ERR_NO_HEADER 2
@@ -145,8 +155,123 @@
 #define FIX_SELF_OFS32 (FIX_OFS32+FIX_SELFREL)
 #define FIX_SELF_OFS32_2 (FIX_OFS32_2+FIX_SELFREL)
 
+#define EXT_NOMATCH       0
+#define EXT_MATCHEDPUBLIC 1
+#define EXT_MATCHEDIMPORT 2
+
+#define PE_SIGNATURE      0x00
+#define PE_MACHINEID      0x04
+#define PE_NUMOBJECTS     0x06
+#define PE_DATESTAMP      0x08
+#define PE_SYMBOLPTR      0x0c
+#define PE_NUMSYMBOLS     0x10
+#define PE_HDRSIZE        0x14
+#define PE_FLAGS          0x16
+#define PE_MAGIC          0x18
+#define PE_LMAJOR         0x1a
+#define PE_LMINOR         0x1b
+#define PE_CODESIZE       0x1c
+#define PE_INITDATASIZE   0x20
+#define PE_UNINITDATASIZE 0x24
+#define PE_ENTRYPOINT     0x28
+#define PE_CODEBASE       0x2c
+#define PE_DATABASE       0x30
+#define PE_IMAGEBASE      0x34
+#define PE_OBJECTALIGN    0x38
+#define PE_FILEALIGN      0x3c
+#define PE_OSMAJOR        0x40
+#define PE_OSMINOR        0x42
+#define PE_USERMAJOR      0x44
+#define PE_USERMINOR      0x46
+#define PE_SUBSYSMAJOR    0x48
+#define PE_SUBSYSMINOR    0x4a
+#define PE_IMAGESIZE      0x50
+#define PE_HEADERSIZE     0x54
+#define PE_CHECKSUM       0x58
+#define PE_SUBSYSTEM      0x5c
+#define PE_DLLFLAGS       0x5e
+#define PE_STACKSIZE      0x60
+#define PE_STACKCOMMSIZE  0x64
+#define PE_HEAPSIZE       0x68
+#define PE_HEAPCOMMSIZE   0x6c
+#define PE_LOADERFLAGS    0x70
+#define PE_NUMRVAS        0x74
+#define PE_EXPORTRVA      0x78
+#define PE_EXPORTSIZE     0x7c
+#define PE_IMPORTRVA      0x80
+#define PE_IMPORTSIZE     0x84
+#define PE_RESOURCERVA    0x88
+#define PE_RESOURCESIZE   0x8c
+#define PE_EXCEPTIONRVA   0x90
+#define PE_EXCEPTIONSIZE  0x94
+#define PE_SECURITYRVA    0x98
+#define PE_SECURITYSIZE   0x9c
+#define PE_FIXUPRVA       0xa0
+#define PE_FIXUPSIZE      0xa4
+#define PE_DEBUGRVA       0xa8
+#define PE_DEBUGSIZE      0xac
+#define PE_DESCRVA        0xb0
+#define PE_DESCSIZE       0xb4
+#define PE_MSPECRVA       0xb8
+#define PE_MSPECSIZE      0xbc
+#define PE_TLSRVA         0xc0
+#define PE_TLSSIZE        0xc4
+#define PE_LOADCONFIGRVA  0xc8
+#define PE_LOADCONFIGSIZE 0xcc
+#define PE_BOUNDIMPRVA    0xd0
+#define PE_BOUNDIMPSIZE   0xd4
+#define PE_IATRVA         0xd8
+#define PE_IATSIZE        0xdc
+
+#define PE_BASE_HEADER_SIZE     0x18
+#define PE_OPTIONAL_HEADER_SIZE 0xe0
+#define PE_OBJECTENTRY_SIZE     0x28
+#define PE_HEADBUF_SIZE         (PE_BASE_HEADER_SIZE+PE_OPTIONAL_HEADER_SIZE)
+#define PE_IMPORTDIRENTRY_SIZE  0x14
+#define PE_NUM_VAS              0x10
+#define PE_EXPORTHEADER_SIZE    0x28
+
+#define PE_ORDINAL_FLAG    0x80000000
+#define PE_INTEL386        0x014c
+#define PE_MAGICNUM        0x010b
+#define PE_FILE_EXECUTABLE 0x0002
+#define PE_FILE_32BIT      0x0100
+#define PE_FILE_LIBRARY    0x2000
+
+#define PE_REL_LOW16 0x2000
+#define PE_REL_OFS32 0x3000
+
+#define PE_SUBSYS_WINDOWS 2
+#define PE_SUBSYS_CONSOLE 3
+
+#define WINF_UNDEFINED   0x00000000
+#define WINF_CODE        0x00000020
+#define WINF_INITDATA    0x00000040
+#define WINF_UNINITDATA  0x00000080
+#define WINF_COMMENT     0x00000200
+#define WINF_DISCARDABLE 0x02000000
+#define WINF_NOPAGE      0x08000000
+#define WINF_SHARED      0x10000000
+#define WINF_EXECUTE     0x20000000
+#define WINF_READABLE    0x40000000
+#define WINF_WRITEABLE   0x80000000
+
 #define OUTPUT_COM 1
 #define OUTPUT_EXE 2
+#define OUTPUT_PE  3
+
+#define WIN32_DEFAULT_BASE 		0x00400000
+#define WIN32_DEFAULT_FILEALIGN 	0x00000200
+#define WIN32_DEFAULT_OBJECTALIGN 	0x00010000
+#define WIN32_DEFAULT_STACKSIZE		0x00100000
+#define WIN32_DEFAULT_STACKCOMMITSIZE	0x00001000
+#define WIN32_DEFAULT_HEAPSIZE		0x00100000
+#define WIN32_DEFAULT_HEAPCOMMITSIZE	0x00001000
+#define WIN32_DEFAULT_SUBSYS		PE_SUBSYS_WINDOWS
+#define WIN32_DEFAULT_SUBSYSMAJOR	4
+#define WIN32_DEFAULT_SUBSYSMINOR	0
+#define WIN32_DEFAULT_OSMAJOR		1
+#define WIN32_DEFAULT_OSMINOR		0
 
 #define EXP_ORD 0x80
 
@@ -169,9 +294,11 @@ typedef struct __seg {
  long classindex;
  long overlayindex;
  UINT length;
+ UINT virtualSize;
  UINT absframe;
  UINT absofs;
  UINT base;
+ UINT winFlags;
  unsigned char attr;
  PUCHAR data;
  PUCHAR datmask;
@@ -183,12 +310,14 @@ typedef struct __imprec {
  PCHAR imp_name;
  unsigned short ordinal;
  char flags;
+ long segnum;
+ UINT ofs;
 } IMPREC, *PIMPREC, **PPIMPREC;
 
 typedef struct __exprec {
  PCHAR int_name;
  PCHAR exp_name;
- unsigned short ordinal;
+ UINT ordinal;
  char flags;
  long pubnum;
 } EXPREC, *PEXPREC, **PPEXPREC;
@@ -213,6 +342,7 @@ typedef struct __extdef {
  long typenum;
  long pubnum;
  long impnum;
+ long flags;
 } EXTREC, *PEXTREC,**PPEXTREC;
 
 typedef struct __reloc {
@@ -222,6 +352,7 @@ typedef struct __reloc {
  long target;
  UINT disp;
  long frame;
+ UINT outputPos;
 } RELOC, *PRELOC,**PPRELOC;
 
 typedef struct __grp {
@@ -243,6 +374,101 @@ typedef struct __libfile {
  UINT dicstart;
  char flags;
  long numsyms;
+ int modsloaded;
+ unsigned short *modlist;
  PPLIBENTRY syms;
 } LIBFILE, *PLIBFILE, **PPLIBFILE;
 
+void processArgs(int argc,char *argv[]);
+void combine_groups(long i,long j);
+void combine_common(long i,long j);
+void combine_segments(long i,long j);
+void OutputWin32file(PCHAR outname);
+void OutputEXEfile(PCHAR outname);
+void OutputCOMfile(PCHAR outname);
+void GetFixupTarget(PRELOC r,long *tseg,UINT *tofs,int isFlat);
+void loadlibmod(PLIBFILE p,unsigned short modpage);
+void loadlib(FILE *libfile,PCHAR libname);
+long loadmod(FILE *objfile);
+void LoadFIXUP(PRELOC r,PUCHAR buf,long *p);
+void RelocLIDATA(PDATABLOCK p,long *ofs);
+void EmitLiData(PDATABLOCK p,long segnum,long *ofs);
+PDATABLOCK BuildLiData(long *bufofs);
+void DestroyLIDATA(PDATABLOCK p);
+void ReportError(long errnum);
+long GetIndex(PUCHAR buf,long *index);
+void ClearNbit(PUCHAR mask,long i);
+void SetNbit(PUCHAR mask,long i);
+char GetNbit(PUCHAR mask,long i);
+int stricmp(const char *s1,const char*s2);
+char *strupr(char *s);
+int getBitCount(UINT a);
+
+
+extern char case_sensitive;
+extern char padsegments;
+extern char mapfile;
+extern PCHAR mapname;
+extern unsigned short maxalloc;
+extern int output_type;
+extern PCHAR outname;
+
+extern UINT max_segs,
+	max_names,
+	max_grps,
+	max_relocs,
+	max_imports,
+	max_exports,
+	max_publics,
+	max_externs;
+
+extern FILE *afile;
+extern UINT filepos;
+extern long reclength;
+extern unsigned char rectype;
+extern char li_le;
+extern UINT prevofs;
+extern long prevseg;
+extern long gotstart;
+extern RELOC startaddr;
+extern UINT imageBase;
+extern UINT fileAlign;
+extern UINT objectAlign;
+extern UINT stackSize;
+extern UINT stackCommitSize;
+extern UINT heapSize;
+extern UINT heapCommitSize;
+extern unsigned char osMajor,osMinor;
+extern unsigned char subsysMajor,subsysMinor;
+extern unsigned int subSystem;
+
+extern long errcount;
+
+extern unsigned char buf[65536];
+extern PDATABLOCK lidata;
+
+extern PPCHAR namelist;
+extern PPSEG seglist;
+extern PPSEG outlist;
+extern PPGRP grplist;
+extern PPPUBLIC publics;
+extern PPEXTREC externs;
+extern PPRELOC relocs;
+extern PPIMPREC impdefs;
+extern PPEXPREC expdefs;
+extern PPLIBFILE libfiles;
+extern PCHAR modname[256];
+extern PCHAR filename[256];
+extern UINT namecount,namemin,
+	segcount,segmin,outcount,baseSeg,
+	grpcount,grpmin,
+	pubcount,pubmin,
+	extcount,extmin,
+	fixcount,fixmin,
+	impcount,impmin,impsreq,
+	expcount,expmin,
+	nummods,
+	filecount,
+	libcount;
+
+extern int buildDll;
