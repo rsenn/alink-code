@@ -72,4 +72,4 @@ The output will also include a list of the segments, publics and externals.
 
 Any questions, comments or bug reports please email me at
 
-anthony.williams@mindless.com
+anthony@justsoftwaresolutions.co.uk

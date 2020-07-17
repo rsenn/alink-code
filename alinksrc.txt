@@ -1,11 +1,20 @@
-ALINK Source Code, V1.6, Copyright 1998-9 Anthony A.J. Williams. 
+ALINK Source Code, V1.6,
+Copyright (C) 1998-2020 Anthony A.J. Williams. 
 All Rights Reserved.
 
-This source code is free for all to use, compile and distribute for any
-purpose, provided it remains unmodified, and I am credited. You may not
-charge for this source code, or any executables compiled from it, but you
-may charge a small distribution fee to cover costs, and you may charge
-for any warranty or support you may wish to give your customers.
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at
+your option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 
 As this source is free, it comes with no warranty whatsoever - use it
 entirely at your own risk.
@@ -20,4 +29,5 @@ libraries. Set INCLUDE to point to the ALINK library headers.
 
 Any comments or bug reports, please email me at
 
-anthony_w@geocities.com
+anthony@justsoftwaresolutions.co.uk
+
