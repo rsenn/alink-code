@@ -58,7 +58,7 @@ static PLINEREF debugLines=NULL;
 static UINT debugLineCount=0;
 
 static BOOL isDll=FALSE;
-static BOOL relocsRequired=FALSE;
+BOOL relocsRequired=FALSE;
 static BOOL debugRequired=FALSE;
 static UINT imageBase=0x400000;
 static UINT stackSize=0x100000;

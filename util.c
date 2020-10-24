@@ -234,3 +234,11 @@ char *strupr(char *s)
 }
 
 #endif
+
+void waitKeypress() {
+    int c;
+    printf("----Press Enter to continue---");
+    while(((c=getchar())!='\n') && (c!=EOF));
+}
+
+

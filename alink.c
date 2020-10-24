@@ -437,16 +437,14 @@ void initFormat(PSWITCHPARAM sp)
 		{
 		    diagnostic(DIAG_VITAL,"%s ",outputFormats[i].name);
 		}
-		diagnostic(DIAG_VITAL,"\n----Press Enter for allowed options----");
-		while(((c=getchar())!='\n') && (c!=EOF));
+		/*waitKeypress();*/
 		diagnostic(DIAG_VITAL,"General Options:\n");
 		line=1;
 		for(i=0;systemSwitches[i].name;++i)
 		{
 		    if(line>=24)
 		    {
-			diagnostic(DIAG_VITAL,"----Press Enter to continue----");
-			while(((c=getchar())!='\n') && (c!=EOF));
+	  	/*waitKeypress();*/
 			line=0;
 		    }
 		    line++;
@@ -463,8 +461,7 @@ void initFormat(PSWITCHPARAM sp)
 		{
 		    if(line>=23)
 		    {
-			diagnostic(DIAG_VITAL,"----Press Enter to continue----");
-			while(((c=getchar())!='\n') && (c!=EOF));
+			/*waitKeypress();*/
 			line=0;
 		    }
 		    line+=2;
@@ -475,8 +472,7 @@ void initFormat(PSWITCHPARAM sp)
 		    {
 			if(line>=24)
 			{
-			    diagnostic(DIAG_VITAL,"----Press Enter to continue----");
-			    while(((c=getchar())!='\n') && (c!=EOF));
+			    /*waitKeypress();*/
 			    line=0;
 			}
 			line++;

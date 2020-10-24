@@ -8,16 +8,21 @@
 
 /* stricmp, strcmpi and strcasecmp are platform-dependent case-insenstive */
 /* string compare functions */
+#ifdef _WIN32
 #define GOT_STRICMP
+#else
 /* #define GOT_STRCMPI */
-/* #define GOT_STRCASECMP */
+#define GOT_STRCASECMP
+#endif
 
 /* strdup is sometimes _strdup */
 #define GOT_STRDUP
 /* #define GOT__STRDUP */
 
 /* strupr is not always available */
+#ifdef _WIN32
 #define GOT_STRUPR
+#endif
 
 /* which of snprintf and _snprintf do we have (we need one) */
 #define GOT_SNPRINTF
